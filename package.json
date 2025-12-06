@@ -1,0 +1,175 @@
+{
+  "name": "semantic-grep",
+  "displayName": "Semantic Grep",
+  "description": "Semantic code search using natural language powered by local Ollama and Nomic Embed Text",
+  "version": "0.1.0",
+  "publisher": "your-publisher-name",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other",
+    "Programming Languages"
+  ],
+  "keywords": [
+    "search",
+    "semantic",
+    "code search",
+    "ollama",
+    "embeddings",
+    "vector search"
+  ],
+  "activationEvents": [
+    "*"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "semanticSearch.search",
+        "title": "Semantic Grep: Search Code",
+        "icon": "$(search)"
+      },
+      {
+        "command": "semanticSearch.indexWorkspace",
+        "title": "Semantic Grep: Index Workspace",
+        "icon": "$(database)"
+      },
+      {
+        "command": "semanticSearch.clearCache",
+        "title": "Semantic Grep: Clear Cache",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "semanticSearch.checkHealth",
+        "title": "Semantic Grep: Check Ollama Status",
+        "icon": "$(pulse)"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "semanticSearch.search",
+        "key": "ctrl+shift+f",
+        "mac": "cmd+shift+f",
+        "when": "!editorFocus || editorTextFocus"
+      }
+    ],
+    "configuration": {
+      "title": "Semantic Grep",
+      "properties": {
+        "semanticSearch.ollamaUrl": {
+          "type": "string",
+          "default": "http://localhost:11434",
+          "description": "Ollama server URL (local only)",
+          "order": 1
+        },
+        "semanticSearch.modelName": {
+          "type": "string",
+          "default": "nomic-embed-text",
+          "description": "Embedding model name (must be pulled in Ollama)",
+          "order": 2
+        },
+        "semanticSearch.chunkSize": {
+          "type": "number",
+          "default": 500,
+          "description": "Maximum tokens per code chunk",
+          "minimum": 100,
+          "maximum": 2000,
+          "order": 3
+        },
+        "semanticSearch.maxFileSize": {
+          "type": "number",
+          "default": 102400,
+          "description": "Maximum file size to index in bytes (100KB default)",
+          "minimum": 1024,
+          "maximum": 1048576,
+          "order": 4
+        },
+        "semanticSearch.excludePatterns": {
+          "type": "array",
+          "default": [
+            "**/node_modules/**",
+            "**/dist/**",
+            "**/build/**",
+            "**/out/**",
+            "**/.git/**",
+            "**/coverage/**",
+            "**/.next/**",
+            "**/.vscode/**"
+          ],
+          "description": "Glob patterns to exclude from indexing",
+          "order": 5
+        },
+        "semanticSearch.supportedLanguages": {
+          "type": "array",
+          "default": [
+            "ts",
+            "tsx",
+            "js",
+            "jsx",
+            "py",
+            "java",
+            "go",
+            "rust",
+            "vue",
+            "c",
+            "cpp",
+            "cs",
+            "rb",
+            "php"
+          ],
+          "description": "File extensions to index",
+          "order": 6
+        },
+        "semanticSearch.autoIndex": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically index workspace on open",
+          "order": 7
+        },
+        "semanticSearch.batchSize": {
+          "type": "number",
+          "default": 32,
+          "description": "Number of chunks to embed in a single batch",
+          "minimum": 1,
+          "maximum": 100,
+          "order": 8
+        },
+        "semanticSearch.healthCheckInterval": {
+          "type": "number",
+          "default": 120,
+          "description": "Health check interval in seconds (0 to disable periodic checks)",
+          "minimum": 0,
+          "maximum": 600,
+          "order": 9
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile",
+    "lint": "eslint src --ext ts",
+    "package": "vsce package",
+    "test": "node ./out/test/runTest.js"
+  },
+  "devDependencies": {
+    "@types/node": "^20.x",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "@vscode/test-electron": "^2.3.8",
+    "@vscode/vsce": "^2.22.0",
+    "eslint": "^8.54.0",
+    "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "@lancedb/lancedb": "^0.4.0",
+    "axios": "^1.13.2",
+    "fast-glob": "^3.3.2",
+    "web-tree-sitter": "^0.20.8"
+  }
+}

@@ -1,0 +1,15 @@
+out
+node_modules
+.vscode-test/
+*.vsix
+.DS_Store
+*.log
+.vscode/.ropeproject
+.vscode/settings.json
+dist/
+coverage/
+.nyc_output/
+*.tsbuildinfo
+.eslintcache
+.claude/
+package-lock.json
