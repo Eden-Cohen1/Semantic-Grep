@@ -1,15 +1,52 @@
+# Compiled output
 out
-node_modules
-.vscode-test/
-*.vsix
-.DS_Store
-*.log
-.vscode/.ropeproject
-.vscode/settings.json
 dist/
+*.js.map
+*.d.ts
+*.d.ts.map
+
+# Dependencies
+node_modules
+package-lock.json
+
+# Testing
+.vscode-test/
 coverage/
 .nyc_output/
+
+# Build artifacts
+*.vsix
 *.tsbuildinfo
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE settings (user-specific)
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Temporary files
 .eslintcache
+*.tmp
+*.temp
+
+# Claude Code
 .claude/
-package-lock.json
+
+# Project-specific
+spec.md
