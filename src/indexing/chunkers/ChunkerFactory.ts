@@ -63,10 +63,9 @@ export class ChunkerFactory {
         if (!this.treeSitterChunker) {
             try {
                 // Lazy import to avoid loading Tree-sitter if not needed
-                // This will be implemented in Phase 3
-                // For now, return undefined since TreeSitterChunker doesn't exist yet
-                this.logger.debug("TreeSitterChunker not yet implemented");
-                return undefined;
+                const { TreeSitterChunker } = require("./TreeSitterChunker");
+                this.treeSitterChunker = new TreeSitterChunker();
+                this.logger.debug("Initialized TreeSitterChunker");
             } catch (error) {
                 this.logger.error("Failed to initialize TreeSitterChunker", error);
                 return undefined;

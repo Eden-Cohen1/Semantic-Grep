@@ -1,6 +1,5 @@
 import Parser from "web-tree-sitter";
 import * as path from "path";
-import * as vscode from "vscode";
 import { Logger } from "../../../utils/logger";
 
 /**
@@ -26,15 +25,15 @@ export class LanguageRegistry {
     };
 
     /**
-     * Map grammar names to WASM file names
-     * Grammar name -> WASM filename
+     * Map grammar names to WASM file paths (relative to project root)
+     * Grammar name -> WASM path from node_modules
      */
     private static grammarFiles: Record<string, string> = {
-        'typescript': 'tree-sitter-typescript.wasm',
-        'tsx': 'tree-sitter-tsx.wasm',
-        'javascript': 'tree-sitter-javascript.wasm',
-        'python': 'tree-sitter-python.wasm',
-        'vue': 'tree-sitter-vue.wasm'
+        'typescript': 'node_modules/tree-sitter-typescript/tree-sitter-typescript.wasm',
+        'tsx': 'node_modules/tree-sitter-typescript/tree-sitter-tsx.wasm',
+        'javascript': 'node_modules/tree-sitter-typescript/node_modules/tree-sitter-javascript/tree-sitter-javascript.wasm',
+        'python': 'node_modules/tree-sitter-python/tree-sitter-python.wasm',
+        'vue': 'node_modules/tree-sitter-vue/tree-sitter-vue.wasm' // Will be compiled later
     };
 
     /**
@@ -47,29 +46,11 @@ export class LanguageRegistry {
         }
 
         try {
-            // Get extension path
-            const extension = vscode.extensions.getExtension('your-publisher-name.semantic-grep');
-            if (!extension) {
-                throw new Error('Extension not found - cannot locate WASM files');
-            }
+            this.logger.info('Initializing Tree-sitter');
 
-            const extensionPath = extension.extensionPath;
-            const wasmPath = path.join(extensionPath, 'out', 'grammars');
-
-            this.logger.info(`Initializing Tree-sitter with WASM path: ${wasmPath}`);
-
-            // Initialize web-tree-sitter with locateFile callback
-            await Parser.init({
-                locateFile(scriptName: string, scriptDirectory: string) {
-                    // Always load from our grammars directory
-                    if (scriptName === 'tree-sitter.wasm') {
-                        // Main tree-sitter WASM is in node_modules
-                        return path.join(extensionPath, 'node_modules', 'web-tree-sitter', 'tree-sitter.wasm');
-                    }
-                    // Language WASM files are in out/grammars
-                    return path.join(wasmPath, scriptName);
-                }
-            });
+            // Initialize web-tree-sitter
+            // By default, it will load tree-sitter.wasm from node_modules
+            await Parser.init();
 
             this.initialized = true;
             this.logger.info('Tree-sitter initialized successfully');
@@ -103,21 +84,21 @@ export class LanguageRegistry {
 
         // Load WASM file
         try {
-            const wasmFile = this.grammarFiles[grammarName];
-            if (!wasmFile) {
+            const wasmRelativePath = this.grammarFiles[grammarName];
+            if (!wasmRelativePath) {
                 this.logger.warn(`No WASM file defined for grammar: ${grammarName}`);
                 return null;
             }
 
-            this.logger.info(`Loading Tree-sitter grammar: ${grammarName} (${wasmFile})`);
+            this.logger.info(`Loading Tree-sitter grammar: ${grammarName}`);
 
-            // Get extension path
-            const extension_vscode = vscode.extensions.getExtension('your-publisher-name.semantic-grep');
-            if (!extension_vscode) {
-                throw new Error('Extension not found');
-            }
+            // Construct absolute path to WASM file
+            // __dirname points to out/indexing/chunkers/treeSitter
+            // We need to go up to project root: ../../../..
+            const projectRoot = path.join(__dirname, '..', '..', '..', '..');
+            const wasmPath = path.join(projectRoot, wasmRelativePath);
 
-            const wasmPath = path.join(extension_vscode.extensionPath, 'out', 'grammars', wasmFile);
+            this.logger.debug(`WASM path: ${wasmPath}`);
 
             // Load the language
             const language = await Parser.Language.load(wasmPath);
