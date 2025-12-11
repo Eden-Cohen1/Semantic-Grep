@@ -2,7 +2,6 @@ import * as fs from "fs";
 import * as path from "path";
 import Parser from "web-tree-sitter";
 import { Logger } from "../../utils/logger";
-import { Config } from "../../utils/config";
 import { CodeChunk, ChunkResult, ChunkType } from "../types";
 import { IChunker } from "./IChunker";
 import { TreeSitterParser } from "./treeSitter/TreeSitterParser";
@@ -261,6 +260,7 @@ export class TreeSitterChunker implements IChunker {
       "method",
       "interface",
       "type",
+      "namespace",
       "const",
       "script",
       "template",
@@ -289,6 +289,7 @@ export class TreeSitterChunker implements IChunker {
       interface: "interface",
       type: "type",
       const: "variable",
+      namespace: "namespace",
       script: "block",
       template: "block",
       style: "block",

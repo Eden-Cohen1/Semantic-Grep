@@ -39,6 +39,7 @@ export type ChunkType =
     | 'class'
     | 'interface'
     | 'type'
+    | 'namespace'
     | 'const'
     | 'variable'
     | 'import'
