@@ -50,3 +50,6 @@ Thumbs.db
 
 # Project-specific
 spec.md
+
+# Test output
+chunks-output.json

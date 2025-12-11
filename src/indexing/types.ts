@@ -52,6 +52,6 @@ export type ChunkType =
 export interface ChunkResult {
     chunks: CodeChunk[];
     parseSuccess: boolean;
-    parseMethod: 'tree-sitter' | 'fallback';
+    parseMethod: 'tree-sitter' | 'fallback' | 'langchain';
     error?: string;
 }

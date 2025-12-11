@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { HealthChecker } from './ollama/healthCheck';
 import { StatusBarManager } from './ui/statusBar';
 import { Logger } from './utils/logger';
+import { testChunkerCommand, testChunkerOnWorkspace } from './commands/testChunker';
 
 /**
  * Extension entry point
@@ -104,11 +105,24 @@ function registerCommands(context: vscode.ExtensionContext) {
         }
     );
 
+    // Test chunker commands
+    const testChunkerCmd = vscode.commands.registerCommand(
+        'semanticSearch.testChunker',
+        testChunkerCommand
+    );
+
+    const testChunkerWorkspaceCmd = vscode.commands.registerCommand(
+        'semanticSearch.testChunkerWorkspace',
+        testChunkerOnWorkspace
+    );
+
     context.subscriptions.push(
         searchCommand,
         indexCommand,
         clearCacheCommand,
-        healthCheckCommand
+        healthCheckCommand,
+        testChunkerCmd,
+        testChunkerWorkspaceCmd
     );
 }
 

@@ -1,6 +1,5 @@
 import * as assert from 'assert';
 import * as sinon from 'sinon';
-import fg from 'fast-glob';
 import * as fs from 'fs';
 import { FileScanner } from '../../indexing/fileScanner';
 
@@ -25,7 +24,7 @@ suite('FileScanner Test Suite', () => {
             'c:/test/src/api.js'
         ];
 
-        sandbox.stub(fg, 'default' as any).resolves(mockFiles);
+        sandbox.stub(scanner, 'globFunction' as any).resolves(mockFiles);
         const statStub = sandbox.stub(fs.promises, 'stat');
         mockFiles.forEach(file => {
             statStub.withArgs(file).resolves({ size: 1000, isFile: () => true } as any);
@@ -49,7 +48,7 @@ suite('FileScanner Test Suite', () => {
             'c:/test/large.ts'
         ];
 
-        sandbox.stub(fg, 'default' as any).resolves(mockFiles);
+        sandbox.stub(scanner, 'globFunction' as any).resolves(mockFiles);
         const statStub = sandbox.stub(fs.promises, 'stat');
         statStub.withArgs('c:/test/small.ts').resolves({ size: 1000, isFile: () => true } as any);
         statStub.withArgs('c:/test/large.ts').resolves({ size: 200000, isFile: () => true } as any);
@@ -73,7 +72,7 @@ suite('FileScanner Test Suite', () => {
             'c:/test/normal.ts'
         ];
 
-        sandbox.stub(fg, 'default' as any).resolves(mockFiles);
+        sandbox.stub(scanner, 'globFunction' as any).resolves(mockFiles);
         const statStub = sandbox.stub(fs.promises, 'stat');
         statStub.withArgs('c:/test/empty.ts').resolves({ size: 0, isFile: () => true } as any);
         statStub.withArgs('c:/test/normal.ts').resolves({ size: 1000, isFile: () => true } as any);
@@ -97,7 +96,7 @@ suite('FileScanner Test Suite', () => {
             'c:/test/node_modules/lib.ts'
         ];
 
-        const globStub = sandbox.stub(fg, 'default' as any);
+        const globStub = sandbox.stub(scanner, 'globFunction' as any);
         globStub.callsFake(async () => {
             // Simulate fast-glob filtering out node_modules
             return mockFiles.filter(f => !f.includes('node_modules'));
@@ -151,7 +150,7 @@ suite('FileScanner Test Suite', () => {
             'c:/test/file2.ts'
         ];
 
-        sandbox.stub(fg, 'default' as any).resolves(mockFiles);
+        sandbox.stub(scanner, 'globFunction' as any).resolves(mockFiles);
         const statStub = sandbox.stub(fs.promises, 'stat');
         statStub.withArgs('c:/test/file1.ts').resolves({ size: 1000, isFile: () => true } as any);
         statStub.withArgs('c:/test/file2.ts').resolves({ size: 2000, isFile: () => true } as any);
@@ -172,7 +171,7 @@ suite('FileScanner Test Suite', () => {
             'c:/test/bad.ts'
         ];
 
-        sandbox.stub(fg, 'default' as any).resolves(mockFiles);
+        sandbox.stub(scanner, 'globFunction' as any).resolves(mockFiles);
         const statStub = sandbox.stub(fs.promises, 'stat');
         statStub.withArgs('c:/test/good.ts').resolves({ size: 1000, isFile: () => true } as any);
         statStub.withArgs('c:/test/bad.ts').rejects(new Error('Permission denied'));

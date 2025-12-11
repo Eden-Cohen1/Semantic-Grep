@@ -25,6 +25,7 @@ export interface ScanOptions {
  */
 export class FileScanner {
     private logger = new Logger('FileScanner');
+    protected globFunction = fg;
 
     /**
      * Scan workspace for files to index
@@ -72,7 +73,7 @@ export class FileScanner {
         this.logger.debug(`Exclude patterns: ${excludePatterns.join(', ')}`);
 
         // Scan files using fast-glob
-        const foundFiles = await fg(includePatterns, {
+        const foundFiles = await this.globFunction(includePatterns, {
             cwd: directory,
             absolute: true,
             ignore: excludePatterns,
