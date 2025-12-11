@@ -1,5 +1,5 @@
 import { FileScanner } from './fileScanner';
-import { CodeChunker } from './codeChunker';
+import { ChunkerFactory } from './chunkers/ChunkerFactory';
 import { EmbeddingGenerator, EmbeddingProgress } from './embeddingGenerator';
 import { VectorStore } from '../search/vectorStore';
 import { Logger } from '../utils/logger';
@@ -30,13 +30,11 @@ export interface IndexingResult {
 export class Indexer {
     private logger = new Logger('Indexer');
     private fileScanner: FileScanner;
-    private codeChunker: CodeChunker;
     private embeddingGenerator: EmbeddingGenerator;
     private vectorStore: VectorStore;
 
     constructor() {
         this.fileScanner = new FileScanner();
-        this.codeChunker = new CodeChunker();
         this.embeddingGenerator = new EmbeddingGenerator();
         this.vectorStore = new VectorStore();
         this.logger.info('Indexer initialized');
@@ -95,7 +93,9 @@ export class Indexer {
 
             for (const filePath of scanResult.files) {
                 try {
-                    const result = await this.codeChunker.chunkFile(filePath);
+                    // Get appropriate chunker for this file (TreeSitter or LangChain)
+                    const chunker = ChunkerFactory.getChunker(filePath);
+                    const result = await chunker.chunkFile(filePath);
                     allChunks.push(...result.chunks);
 
                     if (result.error) {
@@ -223,8 +223,9 @@ export class Indexer {
             // Delete old chunks for this file
             await this.vectorStore.deleteFile(filePath);
 
-            // Chunk the file
-            const chunkResult = await this.codeChunker.chunkFile(filePath);
+            // Chunk the file using appropriate chunker
+            const chunker = ChunkerFactory.getChunker(filePath);
+            const chunkResult = await chunker.chunkFile(filePath);
 
             if (chunkResult.chunks.length === 0) {
                 this.logger.warn(`No chunks extracted from ${filePath}`);

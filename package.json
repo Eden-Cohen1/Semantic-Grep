@@ -45,6 +45,16 @@
         "command": "semanticSearch.checkHealth",
         "title": "Semantic Grep: Check Ollama Status",
         "icon": "$(pulse)"
+      },
+      {
+        "command": "semanticSearch.testChunker",
+        "title": "Semantic Grep: Test Chunker on Current File",
+        "icon": "$(file-code)"
+      },
+      {
+        "command": "semanticSearch.testChunkerWorkspace",
+        "title": "Semantic Grep: Test Chunker on Workspace",
+        "icon": "$(folder)"
       }
     ],
     "keybindings": [
@@ -143,6 +153,24 @@
           "minimum": 0,
           "maximum": 600,
           "order": 9
+        },
+        "semanticSearch.preferredChunker": {
+          "type": "string",
+          "enum": ["auto", "tree-sitter", "langchain"],
+          "default": "auto",
+          "enumDescriptions": [
+            "Automatically choose best chunker (prefer Tree-sitter for supported languages)",
+            "Always use Tree-sitter AST parsing (fallback to LangChain if not supported)",
+            "Always use LangChain text splitting (legacy mode)"
+          ],
+          "description": "Code chunking strategy",
+          "order": 10
+        },
+        "semanticSearch.treeSitterEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable Tree-sitter AST-based code parsing",
+          "order": 11
         }
       }
     }
@@ -174,6 +202,7 @@
   },
   "dependencies": {
     "@lancedb/lancedb": "^0.4.0",
+    "@langchain/textsplitters": "^1.0.1",
     "axios": "^1.13.2",
     "fast-glob": "^3.3.2",
     "web-tree-sitter": "^0.20.8"

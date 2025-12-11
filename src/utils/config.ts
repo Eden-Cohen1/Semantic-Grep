@@ -101,4 +101,18 @@ export class Config {
     static getHealthCheckInterval(): number {
         return this.get('healthCheckInterval', 120); // 2 minutes
     }
+
+    /**
+     * Get preferred chunker strategy
+     */
+    static getPreferredChunker(): 'auto' | 'tree-sitter' | 'langchain' {
+        return this.get('preferredChunker', 'auto');
+    }
+
+    /**
+     * Get tree-sitter enabled setting
+     */
+    static getTreeSitterEnabled(): boolean {
+        return this.get('treeSitterEnabled', true);
+    }
 }
