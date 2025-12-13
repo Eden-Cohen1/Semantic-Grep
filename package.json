@@ -186,7 +186,8 @@
     "pretest": "npm run compile",
     "lint": "eslint src --ext ts",
     "package": "vsce package",
-    "test": "node ./out/test/runTest.js"
+    "test": "node ./out/test/runTest.js",
+    "test-chunker": "npm run compile && node test-chunker.js"
   },
   "devDependencies": {
     "@types/glob": "^8.1.0",
@@ -209,10 +210,10 @@
     "@langchain/textsplitters": "^1.0.1",
     "axios": "^1.13.2",
     "fast-glob": "^3.3.2",
-    "tree-sitter-javascript": "^0.25.0",
-    "tree-sitter-python": "^0.25.0",
-    "tree-sitter-typescript": "^0.23.2",
+    "tree-sitter-css": "^0.23.0",
+    "tree-sitter-javascript": "^0.23.0",
+    "tree-sitter-typescript": "^0.23.0",
     "tree-sitter-vue": "^0.2.1",
-    "web-tree-sitter": "^0.20.8"
+    "web-tree-sitter": "^0.22.6"
   }
 }

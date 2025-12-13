@@ -93,7 +93,7 @@ export class Indexer {
 
             for (const filePath of scanResult.files) {
                 try {
-                    // Get appropriate chunker for this file (TreeSitter or LangChain)
+                    // Get chunker for this file
                     const chunker = ChunkerFactory.getChunker(filePath);
                     const result = await chunker.chunkFile(filePath);
                     allChunks.push(...result.chunks);

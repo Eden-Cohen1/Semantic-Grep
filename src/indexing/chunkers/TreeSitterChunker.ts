@@ -1,29 +1,30 @@
 import * as fs from "fs";
 import * as path from "path";
-import Parser from "web-tree-sitter";
 import { Logger } from "../../utils/logger";
+import { Config } from "../../utils/config";
 import { CodeChunk, ChunkResult, ChunkType } from "../types";
 import { IChunker } from "./IChunker";
-import { TreeSitterParser } from "./treeSitter/TreeSitterParser";
-import { LangChainChunker } from "./LangChainChunker";
+import { CintraCodeChunker } from "./treeSitter/CintraCodeChunker";
 
 /**
- * Chunks code files using Tree-sitter AST parsing
- * Provides accurate semantic boundaries for functions, classes, methods, etc.
+ * Chunks code files using Tree-sitter AST parsing with Cintra-style breakpoint logic
+ *
+ * This implementation is based on CintraAI/code-chunker approach:
+ * - Uses Tree-sitter to identify logical breakpoints (functions, classes, etc.)
+ * - Adjusts breakpoints to include preceding comments
+ * - Respects token limits while breaking at semantic boundaries
  */
 export class TreeSitterChunker implements IChunker {
   private logger = new Logger("TreeSitterChunker");
-  private parser: TreeSitterParser;
-  private langchainFallback: LangChainChunker;
-  private queryCache: Map<string, Parser.Query | null> = new Map();
+  private chunkerCache: Map<string, CintraCodeChunker> = new Map();
 
-  // Languages supported by this chunker
-  private supportedLanguages = ["ts", "tsx", "js", "jsx", "vue", "py"];
+  // Languages supported by this chunker (web development only)
+  private supportedLanguages = ["ts", "tsx", "js", "jsx", "css", "vue"];
 
   constructor() {
-    this.parser = new TreeSitterParser();
-    this.langchainFallback = new LangChainChunker();
-    this.logger.info("TreeSitterChunker initialized");
+    this.logger.info(
+      "TreeSitterChunker initialized with Cintra-style chunking"
+    );
   }
 
   getName(): "tree-sitter" {
@@ -35,15 +36,33 @@ export class TreeSitterChunker implements IChunker {
   }
 
   /**
-   * Chunk a single file using Tree-sitter AST parsing
+   * Get or create a CintraCodeChunker for a specific extension
+   */
+  private getChunker(extension: string): CintraCodeChunker {
+    const ext = extension.toLowerCase();
+    if (!this.chunkerCache.has(ext)) {
+      this.chunkerCache.set(ext, new CintraCodeChunker(ext));
+    }
+    return this.chunkerCache.get(ext)!;
+  }
+
+  /**
+   * Chunk a single file using Tree-sitter AST parsing with breakpoint logic
    */
   async chunkFile(filePath: string): Promise<ChunkResult> {
     const extension = path.extname(filePath).slice(1).toLowerCase();
 
     // Check if language is supported
     if (!this.supportsLanguage(extension)) {
-      this.logger.debug(`Falling back to LangChain for unsupported language: ${extension}`);
-      return this.langchainFallback.chunkFile(filePath);
+      this.logger.warn(
+        `Unsupported language: ${extension}. File will not be chunked.`
+      );
+      return {
+        chunks: [],
+        parseSuccess: false,
+        parseMethod: "tree-sitter",
+        error: `Unsupported file extension: ${extension}`,
+      };
     }
 
     try {
@@ -58,35 +77,39 @@ export class TreeSitterChunker implements IChunker {
         };
       }
 
-      // Parse with Tree-sitter
-      const tree = await this.parser.parse(content, extension);
+      // Get token limit from config (used as chunk size target)
+      const tokenLimit = Config.getChunkSize();
 
-      if (!tree) {
-        this.logger.debug(`Tree-sitter parse failed for ${filePath}, falling back to LangChain`);
-        return this.langchainFallback.chunkFile(filePath);
-      }
+      // Get or create chunker for this extension
+      const chunker = this.getChunker(extension);
 
-      // Check for parse errors
-      if (this.parser.hasErrors(tree)) {
-        const errors = this.parser.getErrors(tree);
+      // Check if extension is supported by the parser
+      if (!chunker.supportsExtension()) {
         this.logger.warn(
-          `Tree-sitter found ${errors.length} parse errors in ${filePath}, falling back to LangChain`
+          `Parser doesn't support ${extension}. File will not be chunked.`
         );
-        return this.langchainFallback.chunkFile(filePath);
+        return {
+          chunks: [],
+          parseSuccess: false,
+          parseMethod: "tree-sitter",
+          error: `Parser doesn't support extension: ${extension}`,
+        };
       }
 
-      // Load query patterns for this language
-      const query = await this.loadQuery(extension);
+      // Chunk the code using Cintra-style breakpoint logic
+      const chunkMap = await chunker.chunkAsync(content, tokenLimit);
 
-      if (!query) {
-        this.logger.debug(`No query patterns for ${extension}, falling back to LangChain`);
-        return this.langchainFallback.chunkFile(filePath);
-      }
+      // Convert to CodeChunk format
+      const chunks = this.convertToCodeChunks(
+        filePath,
+        content,
+        chunkMap,
+        extension
+      );
 
-      // Extract chunks using query patterns
-      const chunks = this.extractChunks(filePath, content, tree, query, extension);
-
-      this.logger.debug(`Extracted ${chunks.length} chunks from ${filePath} using Tree-sitter`);
+      this.logger.debug(
+        `Extracted ${chunks.length} chunks from ${filePath} using Tree-sitter`
+      );
 
       return {
         chunks,
@@ -95,8 +118,200 @@ export class TreeSitterChunker implements IChunker {
       };
     } catch (error) {
       this.logger.error(`Tree-sitter chunking failed for ${filePath}:`, error);
-      return this.langchainFallback.chunkFile(filePath);
+      return {
+        chunks: [],
+        parseSuccess: false,
+        parseMethod: "tree-sitter",
+        error: error instanceof Error ? error.message : String(error),
+      };
     }
+  }
+
+  /**
+   * Convert chunk map to CodeChunk array
+   */
+  private convertToCodeChunks(
+    filePath: string,
+    content: string,
+    chunkMap: Map<number, string>,
+    extension: string
+  ): CodeChunk[] {
+    const chunks: CodeChunk[] = [];
+    const lines = content.split("\n");
+
+    // Track current position in the file
+    let searchStartLine = 0;
+
+    for (const [_chunkNumber, chunkCode] of chunkMap) {
+      if (!chunkCode.trim()) {
+        continue;
+      }
+
+      // Find the start line of this chunk in the original content
+      const chunkFirstLine = chunkCode.split("\n")[0];
+      let startLine = searchStartLine;
+
+      // Search for the chunk's first line
+      while (startLine < lines.length) {
+        if (lines[startLine].trim() === chunkFirstLine.trim()) {
+          break;
+        }
+        startLine++;
+      }
+
+      // Calculate end line based on chunk line count
+      const chunkLineCount = chunkCode.split("\n").length;
+      const endLine = startLine + chunkLineCount - 1;
+
+      // Update search position for next chunk
+      searchStartLine = endLine + 1;
+
+      // Detect chunk type from content
+      const chunkType = this.detectChunkType(chunkCode, extension);
+
+      // Create CodeChunk (1-indexed lines for compatibility)
+      chunks.push({
+        id: `${filePath}:${startLine + 1}-${endLine + 1}`,
+        filePath,
+        startLine: startLine + 1,
+        endLine: endLine + 1,
+        text: chunkCode.trim(),
+        type: chunkType,
+        language: extension,
+        timestamp: Date.now(),
+        chunkIndexInFile: chunks.length, // 0-based index
+      });
+    }
+
+    return chunks;
+  }
+
+  /**
+   * Detect the type of code chunk based on content using priority-based classification
+   * Priority: jsx > function > class > interface > type > export > import > variable > block
+   */
+  private detectChunkType(code: string, extension: string): ChunkType {
+    // Search entire chunk for patterns (not just first line)
+    const codeLines = code.split("\n");
+
+    // Python patterns (priority order)
+    if (extension === "py") {
+      // Priority 1: Functions/methods
+      if (codeLines.some((line) => /^\s*(async\s+)?def\s+\w+/.test(line))) {
+        return "function";
+      }
+      // Priority 2: Classes
+      if (codeLines.some((line) => /^\s*class\s+\w+/.test(line))) {
+        return "class";
+      }
+      // Priority 6: Imports
+      if (
+        codeLines.some(
+          (line) =>
+            /^\s*import\s+/.test(line) || /^\s*from\s+\w+\s+import/.test(line)
+        )
+      ) {
+        return "import";
+      }
+    }
+
+    // TypeScript/JavaScript patterns (priority order)
+    if (["ts", "tsx", "js", "jsx"].includes(extension)) {
+      // Priority 1: JSX elements (for React/Vue components)
+      // Check for JSX syntax: <Component, <div, <>, return (<
+      if (
+        ["tsx", "jsx"].includes(extension) &&
+        codeLines.some((line) =>
+          /^(?:export\s+(?:default\s+)?)?(?:function\s+|const\s+|let\s+)([A-Z]\w+)/.test(
+            line
+          )
+        )
+      ) {
+        return "component";
+      }
+      if (
+        ["tsx", "jsx"].includes(extension) &&
+        codeLines.some(
+          (line) =>
+            /<[a-z]+[\s>]/.test(line) || // <div, <span, etc.
+            /<>/.test(line) || // Fragment
+            /return\s*\(?\s*</.test(line) // return (<div
+        )
+      ) {
+        return "jsx";
+      }
+
+      // Priority 2: Functions (regular, arrow, async)
+      if (
+        codeLines.some(
+          (line) =>
+            /^\s*(export\s+)?(async\s+)?function\s+\w+/.test(line) ||
+            /^\s*(export\s+)?const\s+\w+\s*=\s*(async\s+)?\(/.test(line) ||
+            /^\s*(export\s+)?const\s+\w+\s*:\s*\([^)]*\)\s*=>/.test(line)
+        )
+      ) {
+        return "function";
+      }
+      // Priority 3: Classes
+      if (
+        codeLines.some((line) =>
+          /^\s*(export\s+)?(abstract\s+)?class\s+\w+/.test(line)
+        )
+      ) {
+        return "class";
+      }
+      // Priority 4: Interfaces
+      if (
+        codeLines.some((line) => /^\s*(export\s+)?interface\s+\w+/.test(line))
+      ) {
+        return "interface";
+      }
+      // Priority 5: Type aliases and enums
+      if (
+        codeLines.some(
+          (line) =>
+            /^\s*(export\s+)?type\s+\w+/.test(line) ||
+            /^\s*(export\s+)?enum\s+\w+/.test(line)
+        )
+      ) {
+        return "type";
+      }
+      // Priority 6: Export statements (export default, export { })
+      if (
+        codeLines.some(
+          (line) =>
+            /^\s*export\s+default\s+/.test(line) || /^\s*export\s+\{/.test(line)
+        )
+      ) {
+        return "export";
+      }
+      // Priority 6: Imports
+      if (codeLines.some((line) => /^\s*import\s+/.test(line))) {
+        return "import";
+      }
+      // Priority 7: Variables
+      if (
+        codeLines.some((line) =>
+          /^\s*(export\s+)?(const|let|var)\s+\w+/.test(line)
+        )
+      ) {
+        return "variable";
+      }
+    }
+
+    // CSS patterns
+    if (extension === "css") {
+      return "block";
+    }
+
+    // Vue patterns
+    if (extension === "vue") {
+      if (codeLines.some((line) => /<script/.test(line))) return "script";
+      if (codeLines.some((line) => /<template/.test(line))) return "template";
+      if (codeLines.some((line) => /<style/.test(line))) return "css";
+    }
+
+    return "block";
   }
 
   /**
@@ -117,268 +332,13 @@ export class TreeSitterChunker implements IChunker {
   }
 
   /**
-   * Load query patterns from .scm file for a given language
-   */
-  private async loadQuery(extension: string): Promise<Parser.Query | null> {
-    // Check cache first
-    if (this.queryCache.has(extension)) {
-      return this.queryCache.get(extension)!;
-    }
-
-    try {
-      // Map extension to query file name
-      const queryFileName = this.getQueryFileName(extension);
-      const queryPath = path.join(
-        __dirname,
-        "treeSitter",
-        "queries",
-        `${queryFileName}.scm`
-      );
-
-      // Check if query file exists
-      if (!fs.existsSync(queryPath)) {
-        this.logger.warn(`Query file not found: ${queryPath}`);
-        this.queryCache.set(extension, null);
-        return null;
-      }
-
-      // Read query file
-      const querySource = await fs.promises.readFile(queryPath, "utf-8");
-
-      // Get language for creating query
-      const { LanguageRegistry } = require("./treeSitter/LanguageRegistry");
-      const language = await LanguageRegistry.getLanguage(extension);
-
-      if (!language) {
-        this.logger.warn(`Language not available for ${extension}`);
-        this.queryCache.set(extension, null);
-        return null;
-      }
-
-      // Create query
-      const query = language.query(querySource);
-      this.queryCache.set(extension, query);
-
-      this.logger.debug(`Loaded query patterns for ${extension}`);
-      return query;
-    } catch (error) {
-      this.logger.error(`Failed to load query for ${extension}:`, error);
-      this.queryCache.set(extension, null);
-      return null;
-    }
-  }
-
-  /**
-   * Map file extension to query file name
-   */
-  private getQueryFileName(extension: string): string {
-    const mapping: { [key: string]: string } = {
-      ts: "typescript",
-      tsx: "typescript",
-      js: "javascript",
-      jsx: "javascript",
-      vue: "vue",
-      py: "python",
-    };
-
-    return mapping[extension.toLowerCase()] || extension;
-  }
-
-  /**
-   * Extract code chunks from AST using query patterns
-   */
-  private extractChunks(
-    filePath: string,
-    content: string,
-    tree: Parser.Tree,
-    query: Parser.Query,
-    language: string
-  ): CodeChunk[] {
-    const chunks: CodeChunk[] = [];
-    const lines = content.split("\n");
-
-    // Execute query to find all matching nodes
-    const matches = query.matches(tree.rootNode);
-
-    for (const match of matches) {
-      // Find the main capture (the one with the semantic unit)
-      const mainCapture = this.findMainCapture(match);
-
-      if (!mainCapture) {
-        continue;
-      }
-
-      const node = mainCapture.node;
-      const captureType = mainCapture.name;
-
-      // Get node position
-      const startLine = node.startPosition.row + 1; // 1-indexed
-      const endLine = node.endPosition.row + 1; // 1-indexed
-
-      // Extract text
-      const chunkText = node.text;
-
-      // Skip very small chunks (likely noise)
-      if (chunkText.trim().length < 10) {
-        continue;
-      }
-
-      // Extract context (comments, decorators)
-      const context = this.extractContext(node, lines, startLine);
-
-      // Combine context with chunk text if available
-      const fullText = context ? `${context}\n${chunkText}` : chunkText;
-
-      // Determine chunk type
-      const chunkType = this.mapCaptureToChunkType(captureType);
-
-      // Create chunk
-      chunks.push(
-        this.createChunk(
-          filePath,
-          startLine,
-          endLine,
-          fullText.trim(),
-          chunkType,
-          language
-        )
-      );
-    }
-
-    return chunks;
-  }
-
-  /**
-   * Find the main capture from a query match
-   * Main captures are: @function, @class, @method, @interface, @type, etc.
-   */
-  private findMainCapture(match: Parser.QueryMatch): Parser.QueryCapture | null {
-    // Priority order for captures
-    const priority = [
-      "function",
-      "class",
-      "method",
-      "interface",
-      "type",
-      "namespace",
-      "const",
-      "script",
-      "template",
-      "style",
-    ];
-
-    for (const captureName of priority) {
-      const capture = match.captures.find((c) => c.name === captureName);
-      if (capture) {
-        return capture;
-      }
-    }
-
-    // Return first capture if no priority match
-    return match.captures[0] || null;
-  }
-
-  /**
-   * Map query capture name to ChunkType
-   */
-  private mapCaptureToChunkType(captureName: string): ChunkType {
-    const mapping: { [key: string]: ChunkType } = {
-      function: "function",
-      class: "class",
-      method: "method",
-      interface: "interface",
-      type: "type",
-      const: "variable",
-      namespace: "namespace",
-      script: "block",
-      template: "block",
-      style: "block",
-    };
-
-    return mapping[captureName] || "block";
-  }
-
-  /**
-   * Extract context (comments, decorators) above a code unit
-   */
-  private extractContext(
-    node: Parser.SyntaxNode,
-    lines: string[],
-    startLine: number
-  ): string | null {
-    const contextLines: string[] = [];
-    let lineIdx = startLine - 2; // Start from line before the node (0-indexed)
-
-    // Look backward for comments and decorators
-    while (lineIdx >= 0) {
-      const line = lines[lineIdx];
-      const trimmed = line.trim();
-
-      // Stop if we hit an empty line after collecting context
-      if (contextLines.length > 0 && trimmed === "") {
-        break;
-      }
-
-      // Check if this is a comment
-      if (
-        trimmed.startsWith("//") ||
-        trimmed.startsWith("/*") ||
-        trimmed.startsWith("*") ||
-        trimmed.endsWith("*/") ||
-        trimmed.startsWith("#") // Python comments
-      ) {
-        contextLines.unshift(line);
-        lineIdx--;
-        continue;
-      }
-
-      // Check if this is a decorator (Python or TypeScript)
-      if (trimmed.startsWith("@")) {
-        contextLines.unshift(line);
-        lineIdx--;
-        continue;
-      }
-
-      // Stop if we hit a non-context line
-      if (trimmed !== "") {
-        break;
-      }
-
-      lineIdx--;
-    }
-
-    return contextLines.length > 0 ? contextLines.join("\n") : null;
-  }
-
-  /**
-   * Create a CodeChunk object
-   */
-  private createChunk(
-    filePath: string,
-    startLine: number,
-    endLine: number,
-    text: string,
-    type: ChunkType,
-    language: string
-  ): CodeChunk {
-    return {
-      id: `${filePath}:${startLine}-${endLine}`,
-      filePath,
-      startLine,
-      endLine,
-      text: text.trim(),
-      type,
-      language,
-      timestamp: Date.now(),
-    };
-  }
-
-  /**
    * Cleanup resources
    */
   dispose(): void {
-    this.parser.dispose();
-    this.queryCache.clear();
+    for (const chunker of this.chunkerCache.values()) {
+      chunker.dispose();
+    }
+    this.chunkerCache.clear();
     this.logger.debug("TreeSitterChunker disposed");
   }
 }

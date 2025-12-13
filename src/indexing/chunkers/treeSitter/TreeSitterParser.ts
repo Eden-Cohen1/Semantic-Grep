@@ -59,7 +59,7 @@ export class TreeSitterParser {
      * @returns true if tree contains errors
      */
     hasErrors(tree: Parser.Tree): boolean {
-        return tree.rootNode.hasError();
+        return tree.rootNode.hasError;
     }
 
     /**
@@ -71,7 +71,7 @@ export class TreeSitterParser {
         const errors: Parser.SyntaxNode[] = [];
 
         const walk = (node: Parser.SyntaxNode) => {
-            if (node.type === 'ERROR' || node.isMissing()) {
+            if (node.type === 'ERROR' || node.isMissing) {
                 errors.push(node);
             }
             for (const child of node.children) {

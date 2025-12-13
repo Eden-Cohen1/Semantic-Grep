@@ -1,5 +1,7 @@
 import * as vscode from "vscode";
 import { ChunkerFactory } from "../indexing/chunkers/ChunkerFactory";
+import { countTokens } from "../indexing/chunkers/treeSitter/tokenCounter";
+import { CintraCodeParser } from "../indexing/chunkers/treeSitter/CintraCodeParser";
 import * as path from "path";
 import * as fs from "fs";
 
@@ -57,10 +59,37 @@ export async function testChunkerCommand(uri?: vscode.Uri) {
         output.appendLine("=".repeat(80));
         output.appendLine("");
 
-        output.appendLine(`Chunks found: ${result.chunks.length}`);
-        output.appendLine(`Parse method: ${result.parseMethod}`);
-        output.appendLine(`Parse success: ${result.parseSuccess}`);
-        output.appendLine(`Chunker used: ${chunker.getName()}`);
+        // Read file to get total size info
+        const fileContent = await fs.promises.readFile(filePath, "utf-8");
+        const fileLines = fileContent.split("\n").length;
+        const fileChars = fileContent.length;
+        const fileTokens = countTokens(fileContent);
+
+        output.appendLine(`📏 File Size:`);
+        output.appendLine(`   Lines:      ${fileLines}`);
+        output.appendLine(`   Characters: ${fileChars}`);
+        output.appendLine(`   Tokens:     ${fileTokens} (estimated)`);
+        output.appendLine("");
+
+        // Debug: Show detected breakpoints
+        const ext = path.extname(filePath).slice(1).toLowerCase();
+        const parser = new CintraCodeParser();
+        const breakpoints = await parser.getLinesForPointsOfInterest(fileContent, ext);
+        const nodeTypes = await parser.debugNodeTypes(fileContent, ext);
+        parser.dispose();
+
+        output.appendLine(`🔍 Debug - AST Node Types (top-level):`);
+        nodeTypes.forEach(nt => output.appendLine(`   ${nt}`));
+        output.appendLine("");
+        output.appendLine(`🎯 Detected Breakpoints (0-indexed lines): [${breakpoints.join(", ")}]`);
+        output.appendLine("");
+
+        output.appendLine(`📦 Chunking Results:`);
+        output.appendLine(`   Chunks found: ${result.chunks.length}`);
+        output.appendLine(`   Parse method: ${result.parseMethod}`);
+        output.appendLine(`   Parse success: ${result.parseSuccess}`);
+        output.appendLine(`   Chunker used: ${chunker.getName()}`);
+        output.appendLine(`   Method: Cintra-style (breakpoint-based)`);
 
         if (result.error) {
           output.appendLine(`❌ Error: ${result.error}`);
@@ -90,11 +119,15 @@ export async function testChunkerCommand(uri?: vscode.Uri) {
         output.appendLine("");
 
         result.chunks.forEach((chunk, idx) => {
+          const chunkLines = chunk.text.split("\n").length;
+          const chunkTokens = countTokens(chunk.text);
+
           output.appendLine(`Chunk ${idx + 1}/${result.chunks.length}:`);
-          output.appendLine(`  Type: ${chunk.type}`);
-          output.appendLine(`  Lines: ${chunk.startLine}-${chunk.endLine}`);
-          output.appendLine(`  Size: ${chunk.text.length} characters`);
-          output.appendLine(`  ID: ${chunk.id}`);
+          output.appendLine(`  Type:       ${chunk.type}`);
+          output.appendLine(`  Lines:      ${chunk.startLine}-${chunk.endLine} (${chunkLines} lines)`);
+          output.appendLine(`  Characters: ${chunk.text.length}`);
+          output.appendLine(`  Tokens:     ${chunkTokens} (estimated)`);
+          output.appendLine(`  ID:         ${chunk.id}`);
           output.appendLine(`  Preview:`);
 
           // Show first 5 lines of the chunk

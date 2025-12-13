@@ -2,7 +2,7 @@ import { ChunkResult, CodeChunk } from "../types";
 
 /**
  * Interface for code chunking implementations
- * Allows pluggable chunker strategies (LangChain, Tree-sitter, etc.)
+ * Uses Tree-sitter AST parsing for semantic code chunking
  */
 export interface IChunker {
     /**
@@ -30,5 +30,5 @@ export interface IChunker {
      * Get the name of this chunker implementation
      * @returns Chunker name for identification and logging
      */
-    getName(): "tree-sitter" | "langchain" | "fallback";
+    getName(): "tree-sitter";
 }

@@ -20,7 +20,7 @@ export class LanguageRegistry {
         'tsx': 'tsx',
         'js': 'javascript',
         'jsx': 'javascript',
-        'py': 'python',
+        'css': 'css',
         'vue': 'vue'
     };
 
@@ -31,9 +31,9 @@ export class LanguageRegistry {
     private static grammarFiles: Record<string, string> = {
         'typescript': 'node_modules/tree-sitter-typescript/tree-sitter-typescript.wasm',
         'tsx': 'node_modules/tree-sitter-typescript/tree-sitter-tsx.wasm',
-        'javascript': 'node_modules/tree-sitter-typescript/node_modules/tree-sitter-javascript/tree-sitter-javascript.wasm',
-        'python': 'node_modules/tree-sitter-python/tree-sitter-python.wasm',
-        'vue': 'node_modules/tree-sitter-vue/tree-sitter-vue.wasm' // Will be compiled later
+        'javascript': 'node_modules/tree-sitter-javascript/tree-sitter-javascript.wasm',
+        'css': 'node_modules/tree-sitter-css/tree-sitter-css.wasm',
+        'vue': 'node_modules/tree-sitter-vue/tree-sitter-vue.wasm'
     };
 
     /**
