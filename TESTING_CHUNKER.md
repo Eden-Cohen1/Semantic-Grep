@@ -140,16 +140,6 @@ This tells you:
 - Extremely large chunks (way over limit)
 - Empty chunks
 
-## Comparing with Old Implementation
-
-To compare with the old query-based approach:
-
-1. Change `preferredChunker` setting to `"langchain"`
-2. Re-index your workspace
-3. Note the difference in chunk sizes and boundaries
-
-The Cintra approach should produce more balanced chunks that respect both semantic boundaries AND token limits.
-
 ## Troubleshooting
 
 ### Test fails with "Language parser not found"
