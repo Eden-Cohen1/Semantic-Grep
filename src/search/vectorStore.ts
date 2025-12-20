@@ -167,6 +167,7 @@ export class VectorStore {
                             type: result.type,
                             language: result.language,
                             timestamp: result.timestamp,
+                            chunkIndexInFile: result.chunkIndexInFile || 0,
                             vector: result.vector
                         },
                         similarity

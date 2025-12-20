@@ -66,6 +66,7 @@ export class CintraCodeChunker extends Chunker {
   private logger = new Logger("CintraCodeChunker");
   private fileExtension: string;
   private parser: CintraCodeParser;
+  private breakpointTypes: Map<number, string> = new Map(); // Store AST-derived types
 
   constructor(fileExtension: string, encodingName: string = "gpt-4") {
     super(encodingName);
@@ -77,6 +78,13 @@ export class CintraCodeChunker extends Chunker {
   }
 
   /**
+   * Get the AST-derived type for a breakpoint line
+   */
+  getBreakpointType(line: number): string | undefined {
+    return this.breakpointTypes.get(line);
+  }
+
+  /**
    * Main async chunking method
    */
   async chunkAsync(
@@ -84,6 +92,12 @@ export class CintraCodeChunker extends Chunker {
     tokenLimit: number
   ): Promise<Map<number, string>> {
     const lines = code.split("\n");
+
+    // Get breakpoints with their AST-derived types
+    this.breakpointTypes = await this.parser.getBreakpointsWithTypes(
+      code,
+      this.fileExtension
+    );
 
     // Get breakpoints from AST
     let breakpoints = await this.parser.getLinesForPointsOfInterest(

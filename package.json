@@ -203,6 +203,7 @@
     "glob": "^13.0.0",
     "mocha": "^11.7.5",
     "sinon": "^21.0.0",
+    "tree-sitter-cli": "^0.25.10",
     "typescript": "^5.3.0"
   },
   "dependencies": {
@@ -214,6 +215,7 @@
     "tree-sitter-javascript": "^0.23.0",
     "tree-sitter-typescript": "^0.23.0",
     "tree-sitter-vue": "^0.2.1",
+    "tree-sitter-wasms": "^0.1.13",
     "web-tree-sitter": "^0.22.6"
   }
 }

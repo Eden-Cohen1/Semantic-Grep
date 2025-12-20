@@ -100,12 +100,16 @@ export class TreeSitterChunker implements IChunker {
       const chunkMap = await chunker.chunkAsync(content, tokenLimit);
 
       // Convert to CodeChunk format
-      const chunks = this.convertToCodeChunks(
+      let chunks = this.convertToCodeChunks(
         filePath,
         content,
         chunkMap,
-        extension
+        extension,
+        chunker
       );
+
+      // Merge consecutive variable declarations together
+      chunks = this.mergeConsecutiveVariables(chunks, content);
 
       this.logger.debug(
         `Extracted ${chunks.length} chunks from ${filePath} using Tree-sitter`
@@ -134,7 +138,8 @@ export class TreeSitterChunker implements IChunker {
     filePath: string,
     content: string,
     chunkMap: Map<number, string>,
-    extension: string
+    extension: string,
+    chunker: CintraCodeChunker
   ): CodeChunk[] {
     const chunks: CodeChunk[] = [];
     const lines = content.split("\n");
@@ -166,8 +171,11 @@ export class TreeSitterChunker implements IChunker {
       // Update search position for next chunk
       searchStartLine = endLine + 1;
 
-      // Detect chunk type from content
-      const chunkType = this.detectChunkType(chunkCode, extension);
+      // Try to get AST-derived type first, fallback to content detection
+      const astType = chunker.getBreakpointType(startLine);
+      const chunkType = astType
+        ? this.mapAstTypeToChunkType(astType)
+        : this.detectChunkType(chunkCode, extension);
 
       // Create CodeChunk (1-indexed lines for compatibility)
       chunks.push({
@@ -184,6 +192,114 @@ export class TreeSitterChunker implements IChunker {
     }
 
     return chunks;
+  }
+
+  /**
+   * Merge consecutive variable declaration chunks into single chunks
+   * Similar to how imports are grouped together
+   */
+  private mergeConsecutiveVariables(
+    chunks: CodeChunk[],
+    content: string
+  ): CodeChunk[] {
+    if (chunks.length <= 1) {
+      return chunks;
+    }
+
+    const merged: CodeChunk[] = [];
+    let i = 0;
+
+    while (i < chunks.length) {
+      const currentChunk = chunks[i];
+
+      // Check if this is a variable chunk and if we can merge with next chunks
+      if (currentChunk.type === "variable") {
+        const variableGroup: CodeChunk[] = [currentChunk];
+        let j = i + 1;
+
+        // Collect consecutive variable chunks
+        while (j < chunks.length && chunks[j].type === "variable") {
+          // Check if chunks are actually consecutive (no gaps)
+          const prevChunk = variableGroup[variableGroup.length - 1];
+          const nextChunk = chunks[j];
+
+          // Allow small gaps (blank lines, comments) between variables
+          const lineGap = nextChunk.startLine - prevChunk.endLine - 1;
+          if (lineGap <= 2) {
+            variableGroup.push(nextChunk);
+            j++;
+          } else {
+            break;
+          }
+        }
+
+        // If we found multiple consecutive variables, merge them
+        if (variableGroup.length > 1) {
+          const firstChunk = variableGroup[0];
+          const lastChunk = variableGroup[variableGroup.length - 1];
+
+          // Extract the combined text from the original content
+          const lines = content.split("\n");
+          const startLine = firstChunk.startLine - 1; // Convert to 0-indexed
+          const endLine = lastChunk.endLine - 1; // Convert to 0-indexed
+          const combinedText = lines.slice(startLine, endLine + 1).join("\n");
+
+          merged.push({
+            id: `${firstChunk.filePath}:${firstChunk.startLine}-${lastChunk.endLine}`,
+            filePath: firstChunk.filePath,
+            startLine: firstChunk.startLine,
+            endLine: lastChunk.endLine,
+            text: combinedText.trim(),
+            type: "variable",
+            language: firstChunk.language,
+            timestamp: Date.now(),
+            chunkIndexInFile: merged.length,
+          });
+
+          i = j; // Skip all merged chunks
+        } else {
+          // Single variable chunk, keep as is
+          merged.push({ ...currentChunk, chunkIndexInFile: merged.length });
+          i++;
+        }
+      } else {
+        // Not a variable chunk, keep as is
+        merged.push({ ...currentChunk, chunkIndexInFile: merged.length });
+        i++;
+      }
+    }
+
+    this.logger.debug(
+      `Merged consecutive variables: ${chunks.length} chunks → ${merged.length} chunks`
+    );
+
+    return merged;
+  }
+
+  /**
+   * Map AST-derived type strings to ChunkType
+   */
+  private mapAstTypeToChunkType(astType: string): ChunkType {
+    const typeMap: Record<string, ChunkType> = {
+      "Function": "function",
+      "Class": "class",
+      "Abstract Class": "class",
+      "Interface": "interface",
+      "Type Alias": "type",
+      "Enum": "type",
+      "Import": "import",
+      "Export": "export",
+      "Variable": "variable",
+      "JSX": "jsx",
+      "Template": "template", // Vue template
+      "Script": "script", // Vue script (should not happen now)
+      "Style": "css", // Vue style
+      "Rule": "css", // CSS rule
+      "Media Query": "css",
+      "Keyframes": "css",
+    };
+
+    return typeMap[astType] || "block";
   }
 
   /**
