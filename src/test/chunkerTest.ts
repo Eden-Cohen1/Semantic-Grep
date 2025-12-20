@@ -1,11 +1,11 @@
 /**
- * Test script for Cintra-style code chunking
+ * Test script for AST-based code chunking
  * Run this to verify the chunker works correctly
  */
 
 import * as path from "path";
 import { TreeSitterChunker } from "../indexing/chunkers/TreeSitterChunker";
-import { CintraCodeChunker } from "../indexing/chunkers/treeSitter/CintraCodeChunker";
+import { ASTCodeChunker } from "../indexing/chunkers/treeSitter/ASTCodeChunker";
 import { countTokens } from "../indexing/chunkers/treeSitter/tokenCounter";
 
 // Sample TypeScript code for testing
@@ -130,14 +130,14 @@ function testTokenCounter() {
 }
 
 /**
- * Test 2: CintraCodeChunker - TypeScript
+ * Test 2: ASTCodeChunker - TypeScript
  */
-async function testCintraChunkerTS() {
+async function testASTChunkerTS() {
     console.log("=".repeat(60));
-    console.log("TEST 2: CintraCodeChunker - TypeScript");
+    console.log("TEST 2: ASTCodeChunker - TypeScript");
     console.log("=".repeat(60));
 
-    const chunker = new CintraCodeChunker("ts");
+    const chunker = new ASTCodeChunker("ts");
     const tokenLimit = 100; // Small limit to force multiple chunks
 
     console.log(`Token limit: ${tokenLimit}`);
@@ -160,14 +160,14 @@ async function testCintraChunkerTS() {
 }
 
 /**
- * Test 3: CintraCodeChunker - Python
+ * Test 3: ASTCodeChunker - Python
  */
-async function testCintraChunkerPy() {
+async function testASTChunkerPy() {
     console.log("=".repeat(60));
-    console.log("TEST 3: CintraCodeChunker - Python");
+    console.log("TEST 3: ASTCodeChunker - Python");
     console.log("=".repeat(60));
 
-    const chunker = new CintraCodeChunker("py");
+    const chunker = new ASTCodeChunker("py");
     const tokenLimit = 80;
 
     console.log(`Token limit: ${tokenLimit}`);
@@ -197,7 +197,7 @@ async function testFullChunkDisplay() {
     console.log("TEST 4: Full Chunk Display - TypeScript");
     console.log("=".repeat(60));
 
-    const chunker = new CintraCodeChunker("ts");
+    const chunker = new ASTCodeChunker("ts");
     const tokenLimit = 150;
 
     const chunks = await chunker.chunkAsync(SAMPLE_TS_CODE, tokenLimit);
@@ -220,7 +220,7 @@ async function testChunkWithMetadata() {
     console.log("TEST 5: Chunk with Metadata");
     console.log("=".repeat(60));
 
-    const chunker = new CintraCodeChunker("ts");
+    const chunker = new ASTCodeChunker("ts");
     const tokenLimit = 100;
 
     const chunksWithMeta = await chunker.chunkWithMetadata(SAMPLE_TS_CODE, tokenLimit);
@@ -241,15 +241,15 @@ async function testChunkWithMetadata() {
 async function runTests() {
     console.log("\n");
     console.log("*".repeat(60));
-    console.log("CINTRA CODE CHUNKER TESTS");
+    console.log("AST CODE CHUNKER TESTS");
     console.log("*".repeat(60));
     console.log("\n");
 
     try {
         // Run all tests
         testTokenCounter();
-        await testCintraChunkerTS();
-        await testCintraChunkerPy();
+        await testASTChunkerTS();
+        await testASTChunkerPy();
         await testFullChunkDisplay();
         await testChunkWithMetadata();
 

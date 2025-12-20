@@ -1,6 +1,6 @@
-# Testing the Cintra Code Chunker
+# Testing the AST Code Chunker
 
-This guide explains how to test the new Cintra-style code chunking implementation.
+This guide explains how to test the new AST-based code chunking implementation.
 
 ## Quick Test (Recommended)
 
@@ -151,7 +151,7 @@ This tells you:
 - Check the `chunkSize` config in VS Code settings
 
 ### Parser errors for specific languages
-- Check which languages are supported in `CintraCodeParser.ts`
+- Check which languages are supported in `ASTCodeParser.ts`
 - Currently supports: TypeScript, JavaScript, Python, Go, Ruby, PHP, CSS, Vue
 
 ## Next Steps
@@ -167,10 +167,10 @@ After testing:
 You can also manually inspect how a file is chunked:
 
 ```typescript
-import { CintraCodeChunker } from "./src/indexing/chunkers/treeSitter/CintraCodeChunker";
+import { ASTCodeChunker } from "./src/indexing/chunkers/treeSitter/ASTCodeChunker";
 import * as fs from "fs";
 
-const chunker = new CintraCodeChunker("ts");
+const chunker = new ASTCodeChunker("ts");
 const code = fs.readFileSync("path/to/your/file.ts", "utf-8");
 const chunks = await chunker.chunkAsync(code, 500);
 

@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { ChunkerFactory } from "../indexing/chunkers/ChunkerFactory";
 import { countTokens } from "../indexing/chunkers/treeSitter/tokenCounter";
-import { CintraCodeParser } from "../indexing/chunkers/treeSitter/CintraCodeParser";
+import { ASTCodeParser } from "../indexing/chunkers/treeSitter/ASTCodeParser";
 import * as path from "path";
 import * as fs from "fs";
 
@@ -73,7 +73,7 @@ export async function testChunkerCommand(uri?: vscode.Uri) {
 
         // Debug: Show detected breakpoints
         const ext = path.extname(filePath).slice(1).toLowerCase();
-        const parser = new CintraCodeParser();
+        const parser = new ASTCodeParser();
         const breakpoints = await parser.getLinesForPointsOfInterest(fileContent, ext);
         const nodeTypes = await parser.debugNodeTypes(fileContent, ext);
         parser.dispose();

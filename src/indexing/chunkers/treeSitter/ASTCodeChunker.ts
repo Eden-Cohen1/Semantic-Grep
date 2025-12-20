@@ -1,5 +1,5 @@
 /**
- * CintraCodeChunker - Token-aware breakpoint-based code chunker
+ * ASTCodeChunker - Token-aware breakpoint-based code chunker
  * Ported from CintraAI/code-chunker with enhancements:
  * - Max chunk size limit with smart splitting
  * - Min chunk size with merging
@@ -7,7 +7,7 @@
  */
 
 import { Logger } from "../../../utils/logger";
-import { CintraCodeParser } from "./CintraCodeParser";
+import { ASTCodeParser } from "./ASTCodeParser";
 
 // Configuration constants
 const MAX_LINES = 300; // Maximum lines per chunk - split larger chunks
@@ -18,7 +18,7 @@ const ENABLE_OVERLAP = true; // Toggle overlap feature
 /**
  * Represents a code chunk with metadata
  */
-export interface CintraChunk {
+export interface ChunkMetadata {
   chunkNumber: number;
   code: string;
   startLine: number; // 0-indexed
@@ -60,20 +60,20 @@ export abstract class Chunker {
 }
 
 /**
- * CintraCodeChunker - Enhanced chunking implementation
+ * ASTCodeChunker - Enhanced chunking implementation
  */
-export class CintraCodeChunker extends Chunker {
-  private logger = new Logger("CintraCodeChunker");
+export class ASTCodeChunker extends Chunker {
+  private logger = new Logger("ASTCodeChunker");
   private fileExtension: string;
-  private parser: CintraCodeParser;
+  private parser: ASTCodeParser;
   private breakpointTypes: Map<number, string> = new Map(); // Store AST-derived types
 
   constructor(fileExtension: string, encodingName: string = "gpt-4") {
     super(encodingName);
     this.fileExtension = fileExtension.toLowerCase().replace(".", "");
-    this.parser = new CintraCodeParser();
+    this.parser = new ASTCodeParser();
     this.logger.debug(
-      `CintraCodeChunker initialized for: ${this.fileExtension}`
+      `ASTCodeChunker initialized for: ${this.fileExtension}`
     );
   }
 
@@ -375,9 +375,9 @@ export class CintraCodeChunker extends Chunker {
   async chunkWithMetadata(
     code: string,
     tokenLimit: number
-  ): Promise<CintraChunk[]> {
+  ): Promise<ChunkMetadata[]> {
     const chunks = await this.chunkAsync(code, tokenLimit);
-    const result: CintraChunk[] = [];
+    const result: ChunkMetadata[] = [];
 
     let currentLine = 0;
     for (const [chunkNumber, chunkCode] of chunks) {
@@ -400,6 +400,6 @@ export class CintraCodeChunker extends Chunker {
 
   dispose(): void {
     this.parser.dispose();
-    this.logger.debug("CintraCodeChunker disposed");
+    this.logger.debug("ASTCodeChunker disposed");
   }
 }

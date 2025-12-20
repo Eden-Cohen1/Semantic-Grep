@@ -1,5 +1,5 @@
 /**
- * CintraCodeParser - AST-based code parser
+ * ASTCodeParser - AST-based code parser
  * Ported from CintraAI/code-chunker Python implementation
  *
  * Extracts points of interest (functions, classes, etc.) and comments
@@ -115,14 +115,14 @@ const COMMENT_NODE_TYPES: Record<string, Record<string, string>> = {
 };
 
 /**
- * CintraCodeParser - Extracts semantic information from code using Tree-sitter
+ * ASTCodeParser - Extracts semantic information from code using Tree-sitter
  */
-export class CintraCodeParser {
-  private logger = new Logger("CintraCodeParser");
+export class ASTCodeParser {
+  private logger = new Logger("ASTCodeParser");
   private parser: Parser | null = null;
 
   constructor() {
-    this.logger.debug("CintraCodeParser initialized");
+    this.logger.debug("ASTCodeParser initialized");
   }
 
   /**

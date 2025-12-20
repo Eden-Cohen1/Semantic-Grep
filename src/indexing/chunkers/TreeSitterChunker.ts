@@ -4,10 +4,10 @@ import { Logger } from "../../utils/logger";
 import { Config } from "../../utils/config";
 import { CodeChunk, ChunkResult, ChunkType } from "../types";
 import { IChunker } from "./IChunker";
-import { CintraCodeChunker } from "./treeSitter/CintraCodeChunker";
+import { ASTCodeChunker } from "./treeSitter/ASTCodeChunker";
 
 /**
- * Chunks code files using Tree-sitter AST parsing with Cintra-style breakpoint logic
+ * Chunks code files using Tree-sitter AST parsing with AST-based breakpoint logic
  *
  * This implementation is based on CintraAI/code-chunker approach:
  * - Uses Tree-sitter to identify logical breakpoints (functions, classes, etc.)
@@ -16,14 +16,14 @@ import { CintraCodeChunker } from "./treeSitter/CintraCodeChunker";
  */
 export class TreeSitterChunker implements IChunker {
   private logger = new Logger("TreeSitterChunker");
-  private chunkerCache: Map<string, CintraCodeChunker> = new Map();
+  private chunkerCache: Map<string, ASTCodeChunker> = new Map();
 
   // Languages supported by this chunker (web development only)
   private supportedLanguages = ["ts", "tsx", "js", "jsx", "css", "vue"];
 
   constructor() {
     this.logger.info(
-      "TreeSitterChunker initialized with Cintra-style chunking"
+      "TreeSitterChunker initialized with AST-based chunking"
     );
   }
 
@@ -36,12 +36,12 @@ export class TreeSitterChunker implements IChunker {
   }
 
   /**
-   * Get or create a CintraCodeChunker for a specific extension
+   * Get or create an ASTCodeChunker for a specific extension
    */
-  private getChunker(extension: string): CintraCodeChunker {
+  private getChunker(extension: string): ASTCodeChunker {
     const ext = extension.toLowerCase();
     if (!this.chunkerCache.has(ext)) {
-      this.chunkerCache.set(ext, new CintraCodeChunker(ext));
+      this.chunkerCache.set(ext, new ASTCodeChunker(ext));
     }
     return this.chunkerCache.get(ext)!;
   }
@@ -96,7 +96,7 @@ export class TreeSitterChunker implements IChunker {
         };
       }
 
-      // Chunk the code using Cintra-style breakpoint logic
+      // Chunk the code using AST-based breakpoint logic
       const chunkMap = await chunker.chunkAsync(content, tokenLimit);
 
       // Convert to CodeChunk format
@@ -139,7 +139,7 @@ export class TreeSitterChunker implements IChunker {
     content: string,
     chunkMap: Map<number, string>,
     extension: string,
-    chunker: CintraCodeChunker
+    chunker: ASTCodeChunker
   ): CodeChunk[] {
     const chunks: CodeChunk[] = [];
     const lines = content.split("\n");
