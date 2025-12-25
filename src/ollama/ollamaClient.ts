@@ -97,11 +97,27 @@ export class OllamaClient {
                 }
             );
 
-            return response.data.embedding;
+            // Normalize the embedding vector to unit length
+            const embedding = this.normalizeVector(response.data.embedding);
+            return embedding;
         } catch (error) {
             this.logger.error('Failed to generate embedding', error);
             throw this.handleError(error);
         }
+    }
+
+    /**
+     * Normalize a vector to unit length (L2 norm = 1)
+     */
+    private normalizeVector(vector: number[]): number[] {
+        const magnitude = Math.sqrt(vector.reduce((sum, val) => sum + val * val, 0));
+
+        if (magnitude === 0) {
+            this.logger.warn('Zero magnitude vector encountered, returning as-is');
+            return vector;
+        }
+
+        return vector.map(val => val / magnitude);
     }
 
     /**

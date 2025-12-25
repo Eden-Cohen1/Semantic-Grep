@@ -1,6 +1,5 @@
 /**
  * ASTCodeParser - AST-based code parser
- * Ported from CintraAI/code-chunker Python implementation
  *
  * Extracts points of interest (functions, classes, etc.) and comments
  * from code using Tree-sitter AST parsing.
@@ -139,6 +138,7 @@ export class ASTCodeParser {
     code: string,
     extension: string
   ): Promise<Parser.SyntaxNode | null> {
+    
     const languageName = this.getLanguageName(extension);
     if (!languageName) {
       this.logger.debug(`Unsupported file type: ${extension}`);
@@ -621,6 +621,18 @@ export class ASTCodeParser {
 
       extractFromScript(scriptRoot, 0);
 
+      // Special handling for Vue Options API
+      const vueOptionsPoints = this.detectAndExtractVueOptionsApi(
+        scriptRoot,
+        scriptStartLine
+      );
+      if (vueOptionsPoints.length > 0) {
+        pointsOfInterest.push(...vueOptionsPoints);
+        this.logger.info(
+          `[VUE] Found ${vueOptionsPoints.length} Options API breakpoints`
+        );
+      }
+
       this.logger.info(
         `[VUE] Finished parsing script, found ${pointsOfInterest.length} total breakpoints so far`
       );
@@ -785,6 +797,281 @@ export class ASTCodeParser {
    */
   getSupportedExtensions(): string[] {
     return Object.keys(LANGUAGE_EXTENSION_MAP);
+  }
+
+  /**
+   * Detect and extract Vue Options API methods
+   * Wrapper method that detects Options API pattern and extracts breakpoints
+   */
+  private detectAndExtractVueOptionsApi(
+    scriptRoot: Parser.SyntaxNode,
+    scriptStartLine: number
+  ): PointOfInterest[] {
+    const optionsObject = this.detectVueOptionsApi(scriptRoot);
+
+    if (!optionsObject) {
+      this.logger.info("[VUE] No Options API pattern detected");
+      return [];
+    }
+
+    this.logger.info("[VUE] Options API pattern detected, extracting methods");
+    return this.extractOptionsApiMethods(optionsObject, scriptStartLine);
+  }
+
+  /**
+   * Detect Vue Options API pattern: export default { ... }
+   * Returns the options object node if found, null otherwise
+   */
+  private detectVueOptionsApi(
+    scriptRoot: Parser.SyntaxNode
+  ): Parser.SyntaxNode | null {
+    // Look for export_statement at depth 0
+    for (const child of scriptRoot.children) {
+      if (child.type === "export_statement") {
+        // Check for pattern: export default { object }
+        let hasExport = false;
+        let hasDefault = false;
+        let objectNode: Parser.SyntaxNode | null = null;
+
+        for (const exportChild of child.children) {
+          if (exportChild.type === "export") {
+            hasExport = true;
+          } else if (exportChild.type === "default") {
+            hasDefault = true;
+          } else if (exportChild.type === "object") {
+            objectNode = exportChild;
+          }
+        }
+
+        if (hasExport && hasDefault && objectNode) {
+          this.logger.info(
+            "[VUE] Found Options API pattern: export default { }"
+          );
+          return objectNode;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Extract methods from Vue Options API object
+   * Handles lifecycle hooks, data(), methods: {}, computed: {}, watch: {}, props, emits
+   */
+  private extractOptionsApiMethods(
+    optionsObject: Parser.SyntaxNode,
+    scriptStartLine: number
+  ): PointOfInterest[] {
+    const pointsOfInterest: PointOfInterest[] = [];
+    const NESTED_OPTION_KEYS = ["methods", "computed", "watch"];
+
+    for (const child of optionsObject.children) {
+      // Skip syntax tokens
+      if (child.type === "{" || child.type === "}" || child.type === ",") {
+        continue;
+      }
+
+      // Direct method_definition nodes: data(), mounted(), created(), etc.
+      if (child.type === "method_definition") {
+        const methodName = this.extractIdentifier(child);
+        const adjustedLine = scriptStartLine + child.startPosition.row;
+
+        pointsOfInterest.push({
+          node: child,
+          type: this.mapVueOptionToType(methodName),
+          line: adjustedLine,
+        });
+
+        this.logger.info(
+          `[VUE Options] Found method_definition: ${methodName} at line ${adjustedLine}`
+        );
+      }
+
+      // Pair nodes: methods: {}, computed: {}, watch: {}, props: {}, emits: []
+      if (child.type === "pair") {
+        const key = this.extractPairKey(child);
+        const value = this.extractPairValue(child);
+
+        if (!value) continue;
+
+        // Extract nested methods from methods/computed/watch
+        if (NESTED_OPTION_KEYS.includes(key) && value.type === "object") {
+          const nestedMethods = this.extractNestedMethods(
+            value,
+            scriptStartLine,
+            key as "methods" | "computed" | "watch"
+          );
+          pointsOfInterest.push(...nestedMethods);
+          this.logger.info(
+            `[VUE Options] Found ${nestedMethods.length} methods in ${key}`
+          );
+        }
+
+        // Extract props/emits as single chunks
+        if (key === "props" || key === "emits") {
+          const adjustedLine = scriptStartLine + child.startPosition.row;
+          pointsOfInterest.push({
+            node: child,
+            type: key === "props" ? "Props Definition" : "Emits Definition",
+            line: adjustedLine,
+          });
+          this.logger.info(
+            `[VUE Options] Found ${key} definition at line ${adjustedLine}`
+          );
+        }
+      }
+    }
+
+    return pointsOfInterest;
+  }
+
+  /**
+   * Extract individual methods from nested objects (methods: {}, computed: {}, watch: {})
+   */
+  private extractNestedMethods(
+    objectNode: Parser.SyntaxNode,
+    scriptStartLine: number,
+    parentKey: "methods" | "computed" | "watch"
+  ): PointOfInterest[] {
+    const methods: PointOfInterest[] = [];
+    const typePrefix = parentKey.charAt(0).toUpperCase() + parentKey.slice(1);
+
+    for (const child of objectNode.children) {
+      // Skip syntax tokens
+      if (child.type === "{" || child.type === "}" || child.type === ",") {
+        continue;
+      }
+
+      // method_definition: increment() {} or increment: function() {}
+      if (child.type === "method_definition") {
+        const methodName = this.extractIdentifier(child);
+        const adjustedLine = scriptStartLine + child.startPosition.row;
+
+        methods.push({
+          node: child,
+          type: `Vue ${typePrefix} Method`,
+          line: adjustedLine,
+        });
+
+        this.logger.debug(
+          `[VUE ${parentKey}] Found method_definition: ${methodName} at line ${adjustedLine}`
+        );
+      }
+
+      // pair: increment: () => {} or increment: function() {}
+      if (child.type === "pair") {
+        const pairValue = this.extractPairValue(child);
+
+        if (pairValue && this.isFunction(pairValue)) {
+          const methodName = this.extractPairKey(child);
+          const adjustedLine = scriptStartLine + child.startPosition.row;
+
+          methods.push({
+            node: child,
+            type: `Vue ${typePrefix} Method`,
+            line: adjustedLine,
+          });
+
+          this.logger.debug(
+            `[VUE ${parentKey}] Found pair with function: ${methodName} at line ${adjustedLine}`
+          );
+        }
+      }
+    }
+
+    return methods;
+  }
+
+  /**
+   * Map Vue option method name to AST type string
+   */
+  private mapVueOptionToType(methodName: string): string {
+    const LIFECYCLE_HOOKS = [
+      "beforeCreate",
+      "created",
+      "beforeMount",
+      "mounted",
+      "beforeUpdate",
+      "updated",
+      "beforeDestroy",
+      "destroyed",
+      "beforeUnmount",
+      "unmounted",
+      "activated",
+      "deactivated",
+      "errorCaptured",
+    ];
+
+    if (LIFECYCLE_HOOKS.includes(methodName)) {
+      return "Lifecycle Hook";
+    }
+
+    if (methodName === "data") {
+      return "Data Function";
+    }
+
+    // Direct methods at top level (setup, render, etc.)
+    return "Method";
+  }
+
+  /**
+   * Extract identifier name from AST node
+   */
+  private extractIdentifier(node: Parser.SyntaxNode): string {
+    for (const child of node.children) {
+      if (child.type === "property_identifier" || child.type === "identifier") {
+        return child.text;
+      }
+    }
+    return "unknown";
+  }
+
+  /**
+   * Extract key from a pair node (e.g., "methods", "computed")
+   */
+  private extractPairKey(pairNode: Parser.SyntaxNode): string {
+    if (pairNode.type !== "pair") return "";
+
+    for (const child of pairNode.children) {
+      if (child.type === "property_identifier" || child.type === "string") {
+        return child.text.replace(/['"]/g, ""); // Remove quotes if string literal
+      }
+    }
+    return "";
+  }
+
+  /**
+   * Extract value from a pair node
+   */
+  private extractPairValue(
+    pairNode: Parser.SyntaxNode
+  ): Parser.SyntaxNode | null {
+    if (pairNode.type !== "pair") return null;
+
+    // Skip the key and the colon, find the value
+    let foundColon = false;
+    for (const child of pairNode.children) {
+      if (child.type === ":") {
+        foundColon = true;
+        continue;
+      }
+      if (foundColon && child.type !== ":") {
+        return child;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Check if node is a function (arrow, function expression, etc.)
+   */
+  private isFunction(node: Parser.SyntaxNode): boolean {
+    return (
+      node.type === "arrow_function" ||
+      node.type === "function" ||
+      node.type === "function_expression"
+    );
   }
 
   /**

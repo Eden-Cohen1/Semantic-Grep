@@ -9,7 +9,7 @@ import { ASTCodeChunker } from "./treeSitter/ASTCodeChunker";
 /**
  * Chunks code files using Tree-sitter AST parsing with AST-based breakpoint logic
  *
- * This implementation is based on CintraAI/code-chunker approach:
+ * Approach:
  * - Uses Tree-sitter to identify logical breakpoints (functions, classes, etc.)
  * - Adjusts breakpoints to include preceding comments
  * - Respects token limits while breaking at semantic boundaries
@@ -144,32 +144,29 @@ export class TreeSitterChunker implements IChunker {
     const chunks: CodeChunk[] = [];
     const lines = content.split("\n");
 
-    // Track current position in the file
-    let searchStartLine = 0;
-
-    for (const [_chunkNumber, chunkCode] of chunkMap) {
+    for (const [chunkNumber, chunkCode] of chunkMap) {
       if (!chunkCode.trim()) {
         continue;
       }
 
-      // Find the start line of this chunk in the original content
-      const chunkFirstLine = chunkCode.split("\n")[0];
-      let startLine = searchStartLine;
+      // Get the actual starting line for this chunk from the chunker
+      let startLine = chunker.getChunkStartLine(chunkNumber);
 
-      // Search for the chunk's first line
-      while (startLine < lines.length) {
-        if (lines[startLine].trim() === chunkFirstLine.trim()) {
-          break;
+      // Fallback to searching if line number not found (for backward compatibility)
+      if (startLine === undefined) {
+        const chunkFirstLine = chunkCode.split("\n")[0];
+        startLine = 0;
+        for (let i = 0; i < lines.length; i++) {
+          if (lines[i].trim() === chunkFirstLine.trim()) {
+            startLine = i;
+            break;
+          }
         }
-        startLine++;
       }
 
       // Calculate end line based on chunk line count
       const chunkLineCount = chunkCode.split("\n").length;
       const endLine = startLine + chunkLineCount - 1;
-
-      // Update search position for next chunk
-      searchStartLine = endLine + 1;
 
       // Try to get AST-derived type first, fallback to content detection
       const astType = chunker.getBreakpointType(startLine);
@@ -297,6 +294,14 @@ export class TreeSitterChunker implements IChunker {
       "Rule": "css", // CSS rule
       "Media Query": "css",
       "Keyframes": "css",
+      // Vue Options API mappings
+      "Lifecycle Hook": "lifecycle",
+      "Data Function": "data",
+      "Vue Methods Method": "method",
+      "Vue Computed Method": "computed",
+      "Vue Watch Method": "watch",
+      "Props Definition": "const",
+      "Emits Definition": "const",
     };
 
     return typeMap[astType] || "block";

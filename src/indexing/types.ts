@@ -53,6 +53,10 @@ export type ChunkType =
   | "template"
   | "script"
   | "css"
+  | "data"        // Vue data() function
+  | "computed"    // Vue computed properties
+  | "lifecycle"   // Vue lifecycle hooks
+  | "watch"       // Vue watchers
   | "unknown";
 
 /**

@@ -55,6 +55,25 @@
         "command": "semanticSearch.testChunkerWorkspace",
         "title": "Semantic Grep: Test Chunker on Workspace",
         "icon": "$(folder)"
+      },
+      {
+        "command": "semanticSearch.showSearchView",
+        "title": "Semantic Grep: Show Search View",
+        "icon": "$(search-view)"
+      },
+      {
+        "command": "semanticSearch.filterResults",
+        "title": "Semantic Grep: Filter by Type",
+        "icon": "$(filter)"
+      },
+      {
+        "command": "semanticSearch.clearSearch",
+        "title": "Semantic Grep: Clear Results",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "semanticSearch.openChunk",
+        "title": "Open Code Location"
       }
     ],
     "keybindings": [
@@ -65,6 +84,42 @@
         "when": "!editorFocus || editorTextFocus"
       }
     ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "semantic-grep",
+          "title": "Semantic Grep",
+          "icon": "$(search)"
+        }
+      ]
+    },
+    "views": {
+      "semantic-grep": [
+        {
+          "id": "semanticSearch.resultsView",
+          "name": "Search Results"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "semanticSearch.search",
+          "when": "view == semanticSearch.resultsView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "semanticSearch.filterResults",
+          "when": "view == semanticSearch.resultsView",
+          "group": "navigation@2"
+        },
+        {
+          "command": "semanticSearch.clearSearch",
+          "when": "view == semanticSearch.resultsView",
+          "group": "navigation@3"
+        }
+      ]
+    },
     "configuration": {
       "title": "Semantic Grep",
       "properties": {
@@ -175,6 +230,22 @@
           "default": true,
           "description": "Enable Tree-sitter AST-based code parsing",
           "order": 11
+        },
+        "semanticSearch.searchResultLimit": {
+          "type": "number",
+          "default": 20,
+          "description": "Maximum number of search results to display",
+          "minimum": 5,
+          "maximum": 100,
+          "order": 12
+        },
+        "semanticSearch.minSimilarity": {
+          "type": "number",
+          "default": 0.5,
+          "description": "Minimum similarity score for search results (0-1)",
+          "minimum": 0,
+          "maximum": 1,
+          "order": 13
         }
       }
     }

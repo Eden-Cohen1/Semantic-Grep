@@ -3,6 +3,12 @@ import { HealthChecker } from './ollama/healthCheck';
 import { StatusBarManager } from './ui/statusBar';
 import { Logger } from './utils/logger';
 import { testChunkerCommand, testChunkerOnWorkspace } from './commands/testChunker';
+import { indexWorkspaceCommand, clearCacheCommand, showIndexStatsCommand } from './commands/indexCommand';
+import { SearchViewManager } from './ui/searchViewManager';
+import { SearchOrchestrator } from './search/searchOrchestrator';
+import { OllamaClient } from './ollama/ollamaClient';
+import { Indexer } from './indexing/indexer';
+import { executeSearchCommand, showSearchViewCommand, filterResultsCommand, clearSearchCommand, openChunkCommand } from './commands/searchCommand';
 
 /**
  * Extension entry point
@@ -42,8 +48,20 @@ export async function activate(context: vscode.ExtensionContext) {
         statusBar.show('$(check) Ollama Ready');
         logger.info('Ollama health check passed. Extension ready.');
 
+        // Initialize search functionality
+        const indexer = new Indexer();
+        const vectorStore = indexer.getVectorStore();
+
+        // Initialize vector store (required for searching)
+        await vectorStore.initialize();
+
+        const ollamaClient = new OllamaClient();
+        const searchOrchestrator = new SearchOrchestrator(ollamaClient, vectorStore);
+        const searchViewManager = new SearchViewManager(searchOrchestrator);
+        await searchViewManager.initialize(context);
+
         // Register commands
-        registerCommands(context);
+        registerCommands(context, searchViewManager);
 
         // Start periodic health checks
         healthChecker.startPeriodicChecks(context, statusBar);
@@ -67,31 +85,47 @@ export function deactivate() {
 /**
  * Register all extension commands
  */
-function registerCommands(context: vscode.ExtensionContext) {
-    // TODO: Import and register actual command handlers
-
+function registerCommands(context: vscode.ExtensionContext, searchViewManager: SearchViewManager) {
     // Search command
     const searchCommand = vscode.commands.registerCommand(
         'semanticSearch.search',
-        async () => {
-            vscode.window.showInformationMessage('Search command - coming soon!');
-        }
+        () => executeSearchCommand(searchViewManager)
+    );
+
+    // Show search view command
+    const showSearchViewCmd = vscode.commands.registerCommand(
+        'semanticSearch.showSearchView',
+        () => showSearchViewCommand(searchViewManager)
+    );
+
+    // Filter results command
+    const filterResultsCmd = vscode.commands.registerCommand(
+        'semanticSearch.filterResults',
+        () => filterResultsCommand(searchViewManager)
+    );
+
+    // Clear search command
+    const clearSearchCmd = vscode.commands.registerCommand(
+        'semanticSearch.clearSearch',
+        () => clearSearchCommand(searchViewManager)
+    );
+
+    // Open chunk command
+    const openChunkCmd = vscode.commands.registerCommand(
+        'semanticSearch.openChunk',
+        (item) => openChunkCommand(searchViewManager, item)
     );
 
     // Index workspace command
     const indexCommand = vscode.commands.registerCommand(
         'semanticSearch.indexWorkspace',
-        async () => {
-            vscode.window.showInformationMessage('Index workspace command - coming soon!');
-        }
+        indexWorkspaceCommand
     );
 
     // Clear cache command
-    const clearCacheCommand = vscode.commands.registerCommand(
+    const clearCacheCmd = vscode.commands.registerCommand(
         'semanticSearch.clearCache',
-        async () => {
-            vscode.window.showInformationMessage('Clear cache command - coming soon!');
-        }
+        clearCacheCommand
     );
 
     // Health check command
@@ -118,8 +152,12 @@ function registerCommands(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(
         searchCommand,
+        showSearchViewCmd,
+        filterResultsCmd,
+        clearSearchCmd,
+        openChunkCmd,
         indexCommand,
-        clearCacheCommand,
+        clearCacheCmd,
         healthCheckCommand,
         testChunkerCmd,
         testChunkerWorkspaceCmd

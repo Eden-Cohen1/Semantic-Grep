@@ -1,6 +1,6 @@
 /**
  * ASTCodeChunker - Token-aware breakpoint-based code chunker
- * Ported from CintraAI/code-chunker with enhancements:
+ * Approach:
  * - Max chunk size limit with smart splitting
  * - Min chunk size with merging
  * - Overlap between adjacent chunks
@@ -67,6 +67,7 @@ export class ASTCodeChunker extends Chunker {
   private fileExtension: string;
   private parser: ASTCodeParser;
   private breakpointTypes: Map<number, string> = new Map(); // Store AST-derived types
+  private chunkStartLines: Map<number, number> = new Map(); // Store starting line for each chunk
 
   constructor(fileExtension: string, encodingName: string = "gpt-4") {
     super(encodingName);
@@ -82,6 +83,13 @@ export class ASTCodeChunker extends Chunker {
    */
   getBreakpointType(line: number): string | undefined {
     return this.breakpointTypes.get(line);
+  }
+
+  /**
+   * Get the starting line number for a chunk index
+   */
+  getChunkStartLine(chunkIndex: number): number | undefined {
+    return this.chunkStartLines.get(chunkIndex);
   }
 
   /**
@@ -116,6 +124,8 @@ export class ASTCodeChunker extends Chunker {
 
     // Adjust breakpoints to include preceding comments
     const adjustedBreakpoints: number[] = [];
+    const breakpointMapping = new Map<number, number>(); // Maps adjusted line to original line
+
     for (const bp of breakpoints) {
       let currentLine = bp - 1;
       let highestCommentLine: number | null = null;
@@ -125,15 +135,25 @@ export class ASTCodeChunker extends Chunker {
         currentLine--;
       }
 
-      adjustedBreakpoints.push(
-        highestCommentLine !== null ? highestCommentLine : bp
-      );
+      const adjustedLine = highestCommentLine !== null ? highestCommentLine : bp;
+      adjustedBreakpoints.push(adjustedLine);
+      breakpointMapping.set(adjustedLine, bp); // Map adjusted line back to original
     }
 
     const uniqueBreakpoints = [...new Set(adjustedBreakpoints)].sort(
       (a, b) => a - b
     );
     this.logger.debug(`Found ${uniqueBreakpoints.length} breakpoints`);
+
+    // Update breakpointTypes map to use adjusted line numbers
+    const adjustedBreakpointTypes = new Map<number, string>();
+    for (const [adjustedLine, originalLine] of breakpointMapping.entries()) {
+      const type = this.breakpointTypes.get(originalLine);
+      if (type) {
+        adjustedBreakpointTypes.set(adjustedLine, type);
+      }
+    }
+    this.breakpointTypes = adjustedBreakpointTypes;
 
     // Step 1: Create initial chunks at breakpoints
     let rawChunks = this.createChunksAtBreakpoints(lines, uniqueBreakpoints);
@@ -147,12 +167,21 @@ export class ASTCodeChunker extends Chunker {
     // Step 4: Disable overlap for now to fix line counting
     // rawChunks = this.addOverlap(rawChunks);
 
-    // Convert to Map
+    // Convert to Map and calculate starting line numbers
     const chunks = new Map<number, string>();
+    this.chunkStartLines.clear();
+
+    let currentLine = 0;
     rawChunks.forEach((chunk, idx) => {
       if (chunk.trim()) {
-        chunks.set(idx + 1, chunk);
+        const chunkIndex = idx + 1;
+        chunks.set(chunkIndex, chunk);
+        // Store the starting line for this chunk
+        this.chunkStartLines.set(chunkIndex, currentLine);
+        this.logger.debug(`Chunk ${chunkIndex} starts at line ${currentLine}`);
       }
+      // Move to next chunk's start line
+      currentLine += chunk.split('\n').length;
     });
 
     this.logger.debug(`Created ${chunks.size} final chunks`);
