@@ -65,9 +65,9 @@ export class SearchOrchestrator {
 
             logger.debug(`Search params: limit=${limit}, minSimilarity=${minSimilarity}`);
 
-            // Generate query embedding
+            // Generate query embedding with search_query prefix
             logger.debug('Generating query embedding...');
-            const queryVector = await this.ollamaClient.generateEmbedding(params.query.trim());
+            const queryVector = await this.ollamaClient.generateEmbedding(params.query.trim(), true);
             logger.debug(`Query embedding generated: ${queryVector.length} dimensions`);
 
             // Execute vector search

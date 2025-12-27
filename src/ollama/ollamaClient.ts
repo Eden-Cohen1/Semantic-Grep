@@ -84,21 +84,32 @@ export class OllamaClient {
 
     /**
      * Generate embedding for a single text
+     * @param text Text to embed
+     * @param isQuery Whether this is a search query (vs. a document being indexed)
      */
-    async generateEmbedding(text: string): Promise<number[]> {
+    async generateEmbedding(text: string, isQuery: boolean = false): Promise<number[]> {
         const modelName = Config.get('modelName', 'nomic-embed-text');
 
         try {
+            // Preprocess code to split identifiers (camelCase, snake_case)
+            const processedText = this.preprocessCodeForEmbedding(text);
+
+            // Add task-specific prefix based on nomic-embed-text documentation
+            const prefixedText = isQuery
+                ? `search_query: ${processedText}`
+                : `search_document: ${processedText}`;
+
             const response = await this.client.post<OllamaEmbeddingResponse>(
                 '/api/embeddings',
                 {
                     model: modelName,
-                    prompt: text
+                    prompt: prefixedText
                 }
             );
 
             // Normalize the embedding vector to unit length
             const embedding = this.normalizeVector(response.data.embedding);
+            this.logger.debug(`Generated ${isQuery ? 'query' : 'document'} embedding with prefix`);
             return embedding;
         } catch (error) {
             this.logger.error('Failed to generate embedding', error);
@@ -118,6 +129,23 @@ export class OllamaClient {
         }
 
         return vector.map(val => val / magnitude);
+    }
+
+    /**
+     * Preprocess code for better embedding by splitting identifiers
+     * Converts camelCase/PascalCase/snake_case into separate words
+     */
+    private preprocessCodeForEmbedding(code: string): string {
+        return code
+            // Split camelCase: getUserData → get User Data
+            .replace(/([a-z])([A-Z])/g, '$1 $2')
+            // Split PascalCase: XMLParser → XML Parser
+            .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+            // Split snake_case: user_id → user id
+            .replace(/_/g, ' ')
+            // Normalize whitespace
+            .replace(/\s+/g, ' ')
+            .trim();
     }
 
     /**

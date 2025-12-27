@@ -46,8 +46,8 @@ export class EmbeddingGenerator {
             };
         }
 
-        // Extract texts from chunks
-        const texts = chunks.map(chunk => chunk.text);
+        // Build contextual embedding inputs with metadata
+        const texts = chunks.map(chunk => this.buildEmbeddingInput(chunk));
 
         // Generate embeddings using batch processor
         const result = await this.batchProcessor.processTexts(
@@ -142,5 +142,95 @@ export class EmbeddingGenerator {
      */
     adjustBatchSize(increase: boolean): void {
         this.batchProcessor.adjustBatchSize(increase);
+    }
+
+    /**
+     * Build contextual embedding input with metadata
+     * Adds file context, chunk type, and language to help the model understand semantics
+     */
+    private buildEmbeddingInput(chunk: CodeChunk): string {
+        const parts: string[] = [];
+
+        // 1. Language and file context
+        parts.push(`[${chunk.language.toUpperCase()}]`);
+
+        const fileName = chunk.filePath.split(/[/\\]/).pop() || '';
+        if (fileName) {
+            parts.push(fileName);
+        }
+
+        // 2. Chunk type
+        const chunkTypeLabel = this.formatChunkType(chunk.type);
+        parts.push(chunkTypeLabel);
+
+        // 3. Extract identifier name from code (simple heuristic)
+        const name = this.extractIdentifierName(chunk.text, chunk.type);
+        if (name) {
+            parts.push(`Name: ${name}`);
+        }
+
+        // 4. Separator
+        parts.push('');
+
+        // 5. The actual code
+        parts.push(chunk.text);
+
+        return parts.join('\n');
+    }
+
+    /**
+     * Format chunk type for display
+     */
+    private formatChunkType(type: string): string {
+        const typeMap: Record<string, string> = {
+            'function': 'Function',
+            'method': 'Method',
+            'class': 'Class',
+            'interface': 'Interface',
+            'component': 'Component',
+            'const': 'Constant',
+            'variable': 'Variable',
+            'import': 'Import',
+            'export': 'Export',
+            'type': 'Type',
+            'namespace': 'Namespace',
+            'jsx': 'JSX Element',
+            'template': 'Template',
+            'script': 'Script',
+            'css': 'CSS',
+            'data': 'Data Property',
+            'computed': 'Computed Property',
+            'lifecycle': 'Lifecycle Method',
+            'watch': 'Watcher',
+            'block': 'Block',
+            'unknown': 'Code Block'
+        };
+
+        return typeMap[type] || type;
+    }
+
+    /**
+     * Extract identifier name from code (simple regex extraction)
+     */
+    private extractIdentifierName(code: string, type: string): string | null {
+        // Simple regex patterns for common chunk types
+        const patterns: Record<string, RegExp> = {
+            'function': /(?:function|const|let|var)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)/,
+            'class': /class\s+([a-zA-Z_$][a-zA-Z0-9_$]*)/,
+            'method': /([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\(/,
+            'const': /const\s+([a-zA-Z_$][a-zA-Z0-9_$]*)/,
+            'variable': /(?:let|var)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)/,
+            'interface': /interface\s+([a-zA-Z_$][a-zA-Z0-9_$]*)/,
+            'type': /type\s+([a-zA-Z_$][a-zA-Z0-9_$]*)/,
+            'component': /(?:const|function|export\s+(?:default\s+)?(?:function)?)\s+([A-Z][a-zA-Z0-9_$]*)/
+        };
+
+        const pattern = patterns[type];
+        if (!pattern) {
+            return null;
+        }
+
+        const match = code.match(pattern);
+        return match ? match[1] : null;
     }
 }
