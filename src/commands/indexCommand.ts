@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
 import { Indexer, IndexingProgress } from '../indexing/indexer';
 import { Logger } from '../utils/logger';
+import { OllamaClient } from '../ollama/ollamaClient';
+import { Config } from '../utils/config';
 
 const logger = new Logger('IndexCommand');
 
@@ -19,6 +21,51 @@ export async function indexWorkspaceCommand() {
 
         const workspaceFolder = vscode.workspace.workspaceFolders[0];
         logger.info(`Indexing workspace: ${workspaceFolder.uri.fsPath}`);
+
+        // Check if selected model is installed
+        const modelName = Config.get('modelName', 'nomic-embed-text');
+        const ollamaClient = new OllamaClient();
+
+        logger.info(`Checking if model "${modelName}" is installed...`);
+        const isModelInstalled = await ollamaClient.isModelInstalled(modelName);
+
+        if (!isModelInstalled) {
+            logger.error(`Model "${modelName}" is not installed`);
+
+            const pullModelButton = 'Pull Model';
+            const showCommandButton = 'Show Command';
+            const changeModelButton = 'Change Model';
+
+            const selection = await vscode.window.showErrorMessage(
+                `The selected embedding model "${modelName}" is not installed in Ollama. Please pull the model before indexing.`,
+                { modal: true },
+                pullModelButton,
+                showCommandButton,
+                changeModelButton
+            );
+
+            if (selection === pullModelButton) {
+                // Open terminal and run pull command
+                const terminal = vscode.window.createTerminal('Ollama');
+                terminal.show();
+                terminal.sendText(`ollama pull ${modelName}`);
+
+                vscode.window.showInformationMessage(
+                    `Pulling ${modelName}... Please run the index command again after the model is downloaded.`
+                );
+            } else if (selection === showCommandButton) {
+                vscode.window.showInformationMessage(
+                    `Run this command in your terminal: ollama pull ${modelName}`,
+                    { modal: false }
+                );
+            } else if (selection === changeModelButton) {
+                vscode.commands.executeCommand('workbench.action.openSettings', 'semanticSearch.modelName');
+            }
+
+            return;
+        }
+
+        logger.info(`Model "${modelName}" is installed, proceeding with indexing`);
 
         // Confirm with user
         const proceed = await vscode.window.showInformationMessage(

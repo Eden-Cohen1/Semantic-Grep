@@ -63,6 +63,9 @@ export class SearchWebviewProvider implements vscode.WebviewViewProvider {
       case "toggleHybridSearch":
         await this._toggleHybridSearch();
         break;
+      case "changeModel":
+        await this._changeModel(message.model);
+        break;
       case "openFile":
         await this._openFile(
           message.filePath,
@@ -155,6 +158,62 @@ export class SearchWebviewProvider implements vscode.WebviewViewProvider {
     );
   }
 
+  private async _changeModel(newModel: string) {
+    const config = vscode.workspace.getConfiguration("semanticSearch");
+    const currentModel = config.get<string>("modelName", "nomic-embed-text");
+
+    if (currentModel === newModel) {
+      return; // No change
+    }
+
+    // Get model display names
+    const modelNames: Record<string, string> = {
+      "nomic-embed-text": "nomic-embed-text (768-dim, 8192 context)",
+      "mxbai-embed-large": "mxbai-embed-large (1024-dim, 512 context)",
+    };
+
+    // Warn user that changing models requires clearing the index
+    const response = await vscode.window.showWarningMessage(
+      `Changing from ${modelNames[currentModel] || currentModel} to ${modelNames[newModel] || newModel} requires clearing the existing index due to different vector dimensions. Continue?`,
+      { modal: true },
+      "Clear & Re-index",
+      "Cancel"
+    );
+
+    if (response !== "Clear & Re-index") {
+      logger.info("Model change cancelled by user");
+      // Reset the selector back to current model
+      this._view?.webview.postMessage({
+        command: "modelChanged",
+        model: currentModel,
+      });
+      return;
+    }
+
+    // Update the config
+    await config.update(
+      "modelName",
+      newModel,
+      vscode.ConfigurationTarget.Global
+    );
+
+    logger.info(`Model changed from ${currentModel} to ${newModel}`);
+
+    // Clear the cache first (required due to dimension mismatch)
+    await vscode.commands.executeCommand("semanticSearch.clearCache");
+
+    // Then prompt to re-index
+    const reindexResponse = await vscode.window.showInformationMessage(
+      `Index cleared. Ready to re-index with ${modelNames[newModel] || newModel}.`,
+      "Re-index Now",
+      "Later"
+    );
+
+    if (reindexResponse === "Re-index Now") {
+      await vscode.commands.executeCommand("semanticSearch.indexWorkspace");
+    }
+  }
+
   private async _openFile(
     filePath: string,
     startLine: number,
@@ -239,6 +298,7 @@ export class SearchWebviewProvider implements vscode.WebviewViewProvider {
 
   private _getHtmlForWebview(webview: vscode.Webview) {
     const hybridEnabled = Config.getEnableHybridSearch();
+    const currentModel = Config.get('modelName', 'nomic-embed-text') as string;
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -306,7 +366,7 @@ export class SearchWebviewProvider implements vscode.WebviewViewProvider {
             color: var(--vscode-descriptionForeground);
         }
 
-        input[type="text"] {
+        input[type="text"], select {
             width: 100%;
             padding: 6px 8px;
             background-color: var(--vscode-input-background);
@@ -317,8 +377,12 @@ export class SearchWebviewProvider implements vscode.WebviewViewProvider {
             font-size: var(--vscode-font-size);
         }
 
-        input[type="text"]:focus {
+        input[type="text"]:focus, select:focus {
             border-color: var(--vscode-focusBorder);
+        }
+
+        select {
+            cursor: pointer;
         }
 
         .button-group {
@@ -515,6 +579,18 @@ export class SearchWebviewProvider implements vscode.WebviewViewProvider {
         />
     </div>
 
+    <div class="input-group">
+        <label for="modelSelector">Embedding Model</label>
+        <select id="modelSelector" onchange="changeModel()">
+            <option value="nomic-embed-text" ${currentModel === 'nomic-embed-text' ? 'selected' : ''}>
+                nomic-embed-text (768-dim, 8192 context)
+            </option>
+            <option value="mxbai-embed-large" ${currentModel === 'mxbai-embed-large' ? 'selected' : ''}>
+                mxbai-embed-large (1024-dim, 512 context)
+            </option>
+        </select>
+    </div>
+
     <div class="checkbox-group">
         <input
             type="checkbox"
@@ -577,6 +653,16 @@ export class SearchWebviewProvider implements vscode.WebviewViewProvider {
             });
         }
 
+        function changeModel() {
+            const modelSelector = document.getElementById('modelSelector');
+            const selectedModel = modelSelector.value;
+
+            vscode.postMessage({
+                command: 'changeModel',
+                model: selectedModel
+            });
+        }
+
         function openFile(filePath, startLine, endLine) {
             vscode.postMessage({
                 command: 'openFile',
@@ -618,6 +704,11 @@ export class SearchWebviewProvider implements vscode.WebviewViewProvider {
 
                 case 'hybridSearchToggled':
                     document.getElementById('hybridSearchToggle').checked = message.enabled;
+                    break;
+
+                case 'modelChanged':
+                    // Reset the model selector (user cancelled the change)
+                    document.getElementById('modelSelector').value = message.model;
                     break;
             }
         });

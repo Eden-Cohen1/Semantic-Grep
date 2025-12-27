@@ -70,13 +70,49 @@ export class VectorStore {
           );
         }
       } catch (error) {
-        this.logger.info(
-          "Table does not exist yet, will be created on first insert"
-        );
+        const errorMessage = error instanceof Error ? error.message : String(error);
+
+        // Check if it's a corruption error
+        if (errorMessage.includes("Not found:") || errorMessage.includes(".lance")) {
+          this.logger.error("Corrupted database detected during initialization, clearing...");
+          await this.clearCorruptedDatabase();
+          // After clearing, reinitialize
+          this.db = await connect(this.dbPath);
+          this.logger.info("Reinitialized after clearing corruption");
+        } else {
+          this.logger.info(
+            "Table does not exist yet, will be created on first insert"
+          );
+        }
       }
     } catch (error) {
-      this.logger.error("Failed to initialize vector store", error);
-      throw error;
+      const errorMessage = error instanceof Error ? error.message : String(error);
+
+      // Check if database connection itself failed due to corruption
+      if (errorMessage.includes("Not found:") || errorMessage.includes(".lance")) {
+        this.logger.error("Corrupted database directory detected, clearing...");
+        await this.clearCorruptedDatabase();
+        // Retry initialization
+        await this.initialize();
+      } else {
+        this.logger.error("Failed to initialize vector store", error);
+        throw error;
+      }
+    }
+  }
+
+  /**
+   * Clear corrupted database without requiring active connection
+   */
+  private async clearCorruptedDatabase(): Promise<void> {
+    this.logger.info("Clearing corrupted database...");
+    this.table = null;
+    this.db = null;
+
+    if (fs.existsSync(this.dbPath)) {
+      await fs.promises.rm(this.dbPath, { recursive: true, force: true });
+      this.logger.info("Corrupted database removed");
+      await fs.promises.mkdir(this.dbPath, { recursive: true });
     }
   }
 
@@ -156,7 +192,8 @@ export class VectorStore {
   async search(
     queryVector: number[],
     limit: number = 20,
-    minSimilarity: number = 0.5
+    minSimilarity: number = 0.5,
+    retryCount: number = 0
   ): Promise<SearchResult[]> {
     if (!this.table) {
       this.logger.warn("No table available for search");
@@ -236,6 +273,39 @@ export class VectorStore {
       return normalizedResults;
     } catch (error) {
       this.logger.error("Search failed", error);
+
+      const errorMessage = error instanceof Error ? error.message : String(error);
+
+      // Auto-retry logic for transient errors
+      if (retryCount < 2) {
+        // Check if it's a recoverable error
+        if (
+          errorMessage.includes("Not found:") ||
+          errorMessage.includes(".lance") ||
+          errorMessage.includes("stream") ||
+          errorMessage.includes("batch")
+        ) {
+          this.logger.warn(`Retrying search after error (attempt ${retryCount + 1}/2)...`);
+
+          // Reinitialize the database
+          await this.initialize();
+
+          // Retry the search
+          return this.search(queryVector, limit, minSimilarity, retryCount + 1);
+        }
+      }
+
+      // If we've exhausted retries or it's a non-recoverable error
+      if (errorMessage.includes("Not found:") || errorMessage.includes(".lance")) {
+        this.logger.error("Database appears corrupted, clearing...");
+        try {
+          await this.clear();
+          throw new Error("Database was corrupted and has been cleared. Please re-index your workspace.");
+        } catch (clearError) {
+          this.logger.error("Failed to clear corrupted database", clearError);
+        }
+      }
+
       throw error;
     }
   }
@@ -248,7 +318,8 @@ export class VectorStore {
     queryText: string,
     queryVector: number[],
     limit: number = 20,
-    minSimilarity: number = 0.5
+    minSimilarity: number = 0.5,
+    retryCount: number = 0
   ): Promise<SearchResult[]> {
     if (!this.table) {
       this.logger.warn("No table available for hybrid search");
@@ -302,6 +373,39 @@ export class VectorStore {
       return normalizedResults;
     } catch (error) {
       this.logger.error("Hybrid search failed", error);
+
+      const errorMessage = error instanceof Error ? error.message : String(error);
+
+      // Auto-retry logic for transient errors
+      if (retryCount < 2) {
+        // Check if it's a recoverable error
+        if (
+          errorMessage.includes("Not found:") ||
+          errorMessage.includes(".lance") ||
+          errorMessage.includes("stream") ||
+          errorMessage.includes("batch")
+        ) {
+          this.logger.warn(`Retrying hybrid search after error (attempt ${retryCount + 1}/2)...`);
+
+          // Reinitialize the database
+          await this.initialize();
+
+          // Retry the search
+          return this.hybridSearch(queryText, queryVector, limit, minSimilarity, retryCount + 1);
+        }
+      }
+
+      // If we've exhausted retries or it's a non-recoverable error
+      if (errorMessage.includes("Not found:") || errorMessage.includes(".lance")) {
+        this.logger.error("Database appears corrupted, clearing...");
+        try {
+          await this.clear();
+          throw new Error("Database was corrupted and has been cleared. Please re-index your workspace.");
+        } catch (clearError) {
+          this.logger.error("Failed to clear corrupted database", clearError);
+        }
+      }
+
       throw error;
     }
   }
@@ -437,21 +541,26 @@ export class VectorStore {
 
   /**
    * Clear entire index
+   * Completely removes the database directory to prevent schema conflicts
    */
   async clear(): Promise<void> {
-    if (!this.db) {
-      this.logger.warn("Database not initialized");
-      return;
-    }
-
     try {
-      this.logger.info("Clearing vector store...");
+      this.logger.info("Clearing vector store completely...");
 
-      if (this.table) {
-        await this.db.dropTable(this.tableName);
-        this.table = null;
-        this.logger.info("Dropped table");
+      // Close table and database connections
+      this.table = null;
+      this.db = null;
+
+      // Delete the entire database directory to ensure clean slate
+      if (fs.existsSync(this.dbPath)) {
+        this.logger.info(`Removing database directory: ${this.dbPath}`);
+        await fs.promises.rm(this.dbPath, { recursive: true, force: true });
+        this.logger.info("Database directory removed");
       }
+
+      // Re-initialize the database
+      await this.initialize();
+      this.logger.info("Vector store cleared and re-initialized");
     } catch (error) {
       this.logger.error("Failed to clear vector store", error);
       throw error;

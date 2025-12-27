@@ -31,7 +31,7 @@ export class OllamaClient {
         // Create axios instance with default config
         this.client = axios.create({
             baseURL: this.baseUrl,
-            timeout: 30000, // 30 seconds default
+            timeout: 60000, // 60 seconds for embedding generation (models can be slow)
             headers: {
                 'Content-Type': 'application/json'
             }
