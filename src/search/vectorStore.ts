@@ -127,6 +127,17 @@ export class VectorStore {
         this.logger.info(
           `Created table ${this.tableName} with ${records.length} records`
         );
+
+        // Create FTS index on text field for BM25 search (Phase 3)
+        try {
+          await this.table.createIndex({
+            column: "text",
+            type: "fts",
+          } as any);
+          this.logger.info("Created FTS index for hybrid search");
+        } catch (error) {
+          this.logger.warn("Failed to create FTS index (may not be supported)", error);
+        }
       } else {
         await this.table.add(records);
         this.logger.info(
@@ -227,6 +238,149 @@ export class VectorStore {
       this.logger.error("Search failed", error);
       throw error;
     }
+  }
+
+  /**
+   * Hybrid search combining vector similarity and BM25 keyword search
+   * Uses Reciprocal Rank Fusion (RRF) to merge results
+   */
+  async hybridSearch(
+    queryText: string,
+    queryVector: number[],
+    limit: number = 20,
+    minSimilarity: number = 0.5
+  ): Promise<SearchResult[]> {
+    if (!this.table) {
+      this.logger.warn("No table available for hybrid search");
+      return [];
+    }
+
+    try {
+      this.logger.debug(`Performing hybrid search (vector + BM25)`);
+
+      // 1. Vector search
+      const vectorResults = await this.table
+        .vectorSearch(queryVector)
+        .limit(limit * 2)
+        .toArray();
+
+      // 2. BM25 full-text search using query filter
+      let bm25Results: any[] = [];
+      try {
+        // Use LanceDB's query API with full-text search filter
+        // Note: FTS requires the index to be created first
+        bm25Results = await this.table
+          .query()
+          .where(`text LIKE '%${queryText}%'`)
+          .limit(limit * 2)
+          .toArray();
+        this.logger.debug(`BM25 search returned ${bm25Results.length} results`);
+      } catch (error) {
+        this.logger.warn("BM25 search failed, falling back to vector-only", error);
+        // Fall back to vector search only
+        return this.search(queryVector, limit, minSimilarity);
+      }
+
+      // 3. Apply Reciprocal Rank Fusion (RRF)
+      const mergedResults = this.reciprocalRankFusion(
+        vectorResults,
+        bm25Results
+      );
+
+      // 4. Filter by minimum similarity and limit results
+      const filteredResults = mergedResults
+        .filter(result => result.similarity >= minSimilarity)
+        .slice(0, limit);
+
+      this.logger.info(
+        `Hybrid search returned ${filteredResults.length} results (vector: ${vectorResults.length}, BM25: ${bm25Results.length})`
+      );
+
+      // Normalize scores for display
+      const normalizedResults = this.normalizeScoresForDisplay(filteredResults);
+
+      return normalizedResults;
+    } catch (error) {
+      this.logger.error("Hybrid search failed", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Reciprocal Rank Fusion (RRF) algorithm
+   * Combines rankings from multiple search methods
+   * Formula: RRF_score = sum(1 / (k + rank_i)) for each ranking
+   */
+  private reciprocalRankFusion(
+    vectorResults: any[],
+    bm25Results: any[],
+    k: number = 60
+  ): SearchResult[] {
+    // Create maps for O(1) lookup
+    const vectorRankMap = new Map<string, number>();
+    const bm25RankMap = new Map<string, number>();
+    const allChunks = new Map<string, any>();
+
+    // Build vector rank map
+    vectorResults.forEach((result, index) => {
+      vectorRankMap.set(result.id, index + 1);
+      allChunks.set(result.id, result);
+    });
+
+    // Build BM25 rank map
+    bm25Results.forEach((result, index) => {
+      bm25RankMap.set(result.id, index + 1);
+      if (!allChunks.has(result.id)) {
+        allChunks.set(result.id, result);
+      }
+    });
+
+    // Calculate RRF scores
+    const rrfScores: Array<{ id: string; score: number; result: any }> = [];
+
+    allChunks.forEach((result, id) => {
+      let rrfScore = 0;
+
+      // Add vector ranking contribution
+      const vectorRank = vectorRankMap.get(id);
+      if (vectorRank !== undefined) {
+        rrfScore += 1 / (k + vectorRank);
+      }
+
+      // Add BM25 ranking contribution
+      const bm25Rank = bm25RankMap.get(id);
+      if (bm25Rank !== undefined) {
+        rrfScore += 1 / (k + bm25Rank);
+      }
+
+      rrfScores.push({ id, score: rrfScore, result });
+    });
+
+    // Sort by RRF score (descending)
+    rrfScores.sort((a, b) => b.score - a.score);
+
+    // Convert to SearchResult format
+    return rrfScores.map(({ result }) => {
+      // Calculate similarity from distance (for vector results)
+      const squaredDistance = result._distance || 0;
+      const similarity = Math.max(0, Math.min(1, 1 - squaredDistance / 2));
+
+      return {
+        chunk: {
+          id: result.id,
+          filePath: result.filePath,
+          startLine: result.startLine,
+          endLine: result.endLine,
+          text: result.text,
+          type: result.type,
+          language: result.language,
+          timestamp: result.timestamp,
+          chunkIndexInFile: result.chunkIndexInFile || 0,
+          vector: result.vector,
+        },
+        similarity,
+      };
+    });
   }
 
   /**

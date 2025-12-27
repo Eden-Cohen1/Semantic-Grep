@@ -3,12 +3,11 @@ import { HealthChecker } from './ollama/healthCheck';
 import { StatusBarManager } from './ui/statusBar';
 import { Logger } from './utils/logger';
 import { testChunkerCommand, testChunkerOnWorkspace } from './commands/testChunker';
-import { indexWorkspaceCommand, clearCacheCommand, showIndexStatsCommand } from './commands/indexCommand';
-import { SearchViewManager } from './ui/searchViewManager';
+import { indexWorkspaceCommand, clearCacheCommand } from './commands/indexCommand';
+import { SearchWebviewProvider } from './ui/searchWebviewProvider';
 import { SearchOrchestrator } from './search/searchOrchestrator';
 import { OllamaClient } from './ollama/ollamaClient';
 import { Indexer } from './indexing/indexer';
-import { executeSearchCommand, showSearchViewCommand, filterResultsCommand, clearSearchCommand, openChunkCommand } from './commands/searchCommand';
 
 /**
  * Extension entry point
@@ -57,11 +56,22 @@ export async function activate(context: vscode.ExtensionContext) {
 
         const ollamaClient = new OllamaClient();
         const searchOrchestrator = new SearchOrchestrator(ollamaClient, vectorStore);
-        const searchViewManager = new SearchViewManager(searchOrchestrator);
-        await searchViewManager.initialize(context);
+
+        // Register WebView provider
+        const searchWebviewProvider = new SearchWebviewProvider(
+            context.extensionUri,
+            searchOrchestrator
+        );
+
+        context.subscriptions.push(
+            vscode.window.registerWebviewViewProvider(
+                SearchWebviewProvider.viewType,
+                searchWebviewProvider
+            )
+        );
 
         // Register commands
-        registerCommands(context, searchViewManager);
+        registerCommands(context);
 
         // Start periodic health checks
         healthChecker.startPeriodicChecks(context, statusBar);
@@ -85,37 +95,7 @@ export function deactivate() {
 /**
  * Register all extension commands
  */
-function registerCommands(context: vscode.ExtensionContext, searchViewManager: SearchViewManager) {
-    // Search command
-    const searchCommand = vscode.commands.registerCommand(
-        'semanticSearch.search',
-        () => executeSearchCommand(searchViewManager)
-    );
-
-    // Show search view command
-    const showSearchViewCmd = vscode.commands.registerCommand(
-        'semanticSearch.showSearchView',
-        () => showSearchViewCommand(searchViewManager)
-    );
-
-    // Filter results command
-    const filterResultsCmd = vscode.commands.registerCommand(
-        'semanticSearch.filterResults',
-        () => filterResultsCommand(searchViewManager)
-    );
-
-    // Clear search command
-    const clearSearchCmd = vscode.commands.registerCommand(
-        'semanticSearch.clearSearch',
-        () => clearSearchCommand(searchViewManager)
-    );
-
-    // Open chunk command
-    const openChunkCmd = vscode.commands.registerCommand(
-        'semanticSearch.openChunk',
-        (item) => openChunkCommand(searchViewManager, item)
-    );
-
+function registerCommands(context: vscode.ExtensionContext) {
     // Index workspace command
     const indexCommand = vscode.commands.registerCommand(
         'semanticSearch.indexWorkspace',
@@ -151,11 +131,6 @@ function registerCommands(context: vscode.ExtensionContext, searchViewManager: S
     );
 
     context.subscriptions.push(
-        searchCommand,
-        showSearchViewCmd,
-        filterResultsCmd,
-        clearSearchCmd,
-        openChunkCmd,
         indexCommand,
         clearCacheCmd,
         healthCheckCommand,

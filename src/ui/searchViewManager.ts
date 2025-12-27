@@ -36,8 +36,8 @@ export class SearchViewManager {
             showCollapseAll: true
         });
 
-        // Set initial message
-        this.treeView.message = 'Click the search icon to start searching';
+        // Set initial welcome message
+        this.treeView.message = '🔍 Click the search icon (🔎) to start searching\n\n📊 Use toolbar buttons to:\n  • Toggle Hybrid Search (🔀)\n  • Index Workspace (💾)\n  • Open Settings (⚙️)';
 
         context.subscriptions.push(this.treeView);
 
@@ -338,7 +338,7 @@ export class SearchViewManager {
         this.treeDataProvider.clear();
 
         if (this.treeView) {
-            this.treeView.message = 'Click the search icon to start searching';
+            this.treeView.message = '🔍 Click the search icon (🔎) to start searching\n\n📊 Use toolbar buttons to:\n  • Toggle Hybrid Search (🔀)\n  • Index Workspace (💾)\n  • Open Settings (⚙️)';
         }
     }
 

@@ -62,18 +62,26 @@ export class SearchOrchestrator {
             // Get configuration values
             const limit = params.limit ?? Config.get('searchResultLimit', 20);
             const minSimilarity = params.minSimilarity ?? Config.get('minSimilarity', 0.5);
+            const enableHybridSearch = Config.getEnableHybridSearch();
 
-            logger.debug(`Search params: limit=${limit}, minSimilarity=${minSimilarity}`);
+            logger.debug(`Search params: limit=${limit}, minSimilarity=${minSimilarity}, hybrid=${enableHybridSearch}`);
 
             // Generate query embedding with search_query prefix
             logger.debug('Generating query embedding...');
             const queryVector = await this.ollamaClient.generateEmbedding(params.query.trim(), true);
             logger.debug(`Query embedding generated: ${queryVector.length} dimensions`);
 
-            // Execute vector search
-            logger.debug('Executing vector search...');
-            let results = await this.vectorStore.search(queryVector, limit, minSimilarity);
-            logger.info(`Vector search returned ${results.length} results`);
+            // Execute search (hybrid or vector-only based on config)
+            let results: SearchResult[];
+            if (enableHybridSearch) {
+                logger.debug('Executing hybrid search (vector + BM25)...');
+                results = await this.vectorStore.hybridSearch(params.query.trim(), queryVector, limit, minSimilarity);
+                logger.info(`Hybrid search returned ${results.length} results`);
+            } else {
+                logger.debug('Executing vector search...');
+                results = await this.vectorStore.search(queryVector, limit, minSimilarity);
+                logger.info(`Vector search returned ${results.length} results`);
+            }
 
             // Apply chunk type filters if specified
             if (params.chunkTypes && params.chunkTypes.length > 0) {

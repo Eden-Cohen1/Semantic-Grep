@@ -74,6 +74,21 @@
       {
         "command": "semanticSearch.openChunk",
         "title": "Open Code Location"
+      },
+      {
+        "command": "semanticSearch.toggleHybridSearch",
+        "title": "Semantic Grep: Toggle Hybrid Search",
+        "icon": "$(merge)"
+      },
+      {
+        "command": "semanticSearch.indexWorkspaceFromView",
+        "title": "Semantic Grep: Index Workspace",
+        "icon": "$(database)"
+      },
+      {
+        "command": "semanticSearch.openSettings",
+        "title": "Semantic Grep: Open Settings",
+        "icon": "$(settings-gear)"
       }
     ],
     "keybindings": [
@@ -96,30 +111,13 @@
     "views": {
       "semantic-grep": [
         {
-          "id": "semanticSearch.resultsView",
-          "name": "Search Results"
+          "type": "webview",
+          "id": "semanticSearch.searchView",
+          "name": "Search"
         }
       ]
     },
-    "menus": {
-      "view/title": [
-        {
-          "command": "semanticSearch.search",
-          "when": "view == semanticSearch.resultsView",
-          "group": "navigation@1"
-        },
-        {
-          "command": "semanticSearch.filterResults",
-          "when": "view == semanticSearch.resultsView",
-          "group": "navigation@2"
-        },
-        {
-          "command": "semanticSearch.clearSearch",
-          "when": "view == semanticSearch.resultsView",
-          "group": "navigation@3"
-        }
-      ]
-    },
+    "menus": {},
     "configuration": {
       "title": "Semantic Grep",
       "properties": {
