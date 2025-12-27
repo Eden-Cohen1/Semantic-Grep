@@ -132,7 +132,12 @@
         "semanticSearch.modelName": {
           "type": "string",
           "default": "nomic-embed-text",
-          "description": "Embedding model name (must be pulled in Ollama)",
+          "enum": ["nomic-embed-text", "mxbai-embed-large"],
+          "enumDescriptions": [
+            "768-dim, 8192 context - Best for long files and full functions",
+            "1024-dim, 512 context - Higher quality for shorter chunks"
+          ],
+          "description": "Embedding model name (must be pulled in Ollama, changing requires re-indexing)",
           "order": 2
         },
         "semanticSearch.chunkSize": {
@@ -246,6 +251,12 @@
           "minimum": 0,
           "maximum": 1,
           "order": 13
+        },
+        "semanticSearch.enableHybridSearch": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable BM25 + vector hybrid search (requires FTS index creation, Phase 3 feature)",
+          "order": 14
         }
       }
     }

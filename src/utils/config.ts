@@ -115,4 +115,11 @@ export class Config {
     static getTreeSitterEnabled(): boolean {
         return this.get('treeSitterEnabled', true);
     }
+
+    /**
+     * Get hybrid search enabled setting
+     */
+    static getEnableHybridSearch(): boolean {
+        return this.get('enableHybridSearch', false);
+    }
 }

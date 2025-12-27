@@ -143,8 +143,11 @@ export class SearchTreeDataProvider implements vscode.TreeDataProvider<SearchTre
         const items: SearchTreeItem[] = [];
 
         for (const [filePath, results] of this.groupedResults.entries()) {
-            // Calculate average similarity for the file
-            const avgSimilarity = results.reduce((sum, r) => sum + r.similarity, 0) / results.length;
+            // Calculate average score for the file (prefer normalizedScore if available)
+            const hasNormalizedScores = results.some(r => r.normalizedScore !== undefined);
+            const avgScore = hasNormalizedScores
+                ? results.reduce((sum, r) => sum + (r.normalizedScore ?? 0), 0) / results.length
+                : results.reduce((sum, r) => sum + r.similarity, 0) / results.length * 100;
 
             // Get relative path for display
             const displayPath = this.getDisplayPath(filePath);
@@ -157,8 +160,8 @@ export class SearchTreeDataProvider implements vscode.TreeDataProvider<SearchTre
                 undefined
             );
 
-            // Set description (similarity percentage)
-            item.description = `${(avgSimilarity * 100).toFixed(0)}%`;
+            // Set description (score percentage)
+            item.description = `${avgScore.toFixed(0)}%`;
 
             // Set icon
             item.iconPath = new vscode.ThemeIcon('file-code');
@@ -172,12 +175,22 @@ export class SearchTreeDataProvider implements vscode.TreeDataProvider<SearchTre
             items.push(item);
         }
 
-        // Sort files by average similarity (descending)
+        // Sort files by average score (descending)
         items.sort((a, b) => {
-            const aAvg = this.groupedResults.get(a.searchResult!.chunk.filePath)!
-                .reduce((sum, r) => sum + r.similarity, 0) / this.groupedResults.get(a.searchResult!.chunk.filePath)!.length;
-            const bAvg = this.groupedResults.get(b.searchResult!.chunk.filePath)!
-                .reduce((sum, r) => sum + r.similarity, 0) / this.groupedResults.get(b.searchResult!.chunk.filePath)!.length;
+            const aResults = this.groupedResults.get(a.searchResult!.chunk.filePath)!;
+            const bResults = this.groupedResults.get(b.searchResult!.chunk.filePath)!;
+
+            const hasNormalizedA = aResults.some(r => r.normalizedScore !== undefined);
+            const hasNormalizedB = bResults.some(r => r.normalizedScore !== undefined);
+
+            const aAvg = hasNormalizedA
+                ? aResults.reduce((sum, r) => sum + (r.normalizedScore ?? 0), 0) / aResults.length
+                : aResults.reduce((sum, r) => sum + r.similarity, 0) / aResults.length * 100;
+
+            const bAvg = hasNormalizedB
+                ? bResults.reduce((sum, r) => sum + (r.normalizedScore ?? 0), 0) / bResults.length
+                : bResults.reduce((sum, r) => sum + r.similarity, 0) / bResults.length * 100;
+
             return bAvg - aAvg;
         });
 
@@ -225,7 +238,7 @@ export class SearchTreeDataProvider implements vscode.TreeDataProvider<SearchTre
             item.contextValue = 'searchResultChunk';
 
             // Set tooltip with code preview
-            item.tooltip = this.createCodeTooltip(chunk, result.similarity);
+            item.tooltip = this.createCodeTooltip(chunk, result);
 
             return item;
         });
@@ -279,12 +292,17 @@ export class SearchTreeDataProvider implements vscode.TreeDataProvider<SearchTre
     /**
      * Create tooltip with code preview
      */
-    private createCodeTooltip(chunk: CodeChunk, similarity: number): vscode.MarkdownString {
+    private createCodeTooltip(chunk: CodeChunk, result: SearchResult): vscode.MarkdownString {
         const tooltip = new vscode.MarkdownString();
         tooltip.isTrusted = true;
 
-        // Add similarity score
-        tooltip.appendMarkdown(`**Similarity:** ${(similarity * 100).toFixed(1)}%  \n`);
+        // Add score information (prefer normalized score)
+        if (result.normalizedScore !== undefined) {
+            tooltip.appendMarkdown(`**Score:** ${result.normalizedScore}% (similarity: ${(result.similarity * 100).toFixed(1)}%)  \n`);
+        } else {
+            tooltip.appendMarkdown(`**Similarity:** ${(result.similarity * 100).toFixed(1)}%  \n`);
+        }
+
         tooltip.appendMarkdown(`**Type:** ${chunk.type}  \n`);
         tooltip.appendMarkdown(`**Lines:** ${chunk.startLine}-${chunk.endLine}  \n\n`);
 

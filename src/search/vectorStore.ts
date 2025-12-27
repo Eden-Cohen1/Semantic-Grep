@@ -9,6 +9,8 @@ import { CodeChunk } from "../indexing/types";
 export interface SearchResult {
   chunk: CodeChunk;
   similarity: number;
+  normalizedScore?: number;  // 0-100 normalized score for display
+  reRankScore?: number;      // Composite score from multi-signal re-ranking
 }
 
 export interface VectorStoreStats {
@@ -216,11 +218,44 @@ export class VectorStore {
       this.logger.info(
         `Found ${searchResults.length} results above threshold (min=${minSimilarity})`
       );
-      return searchResults;
+
+      // Normalize scores for display (0-100 scale)
+      const normalizedResults = this.normalizeScoresForDisplay(searchResults);
+
+      return normalizedResults;
     } catch (error) {
       this.logger.error("Search failed", error);
       throw error;
     }
+  }
+
+  /**
+   * Normalize similarity scores to 0-100 range for better UX
+   * Maps the range of actual scores to a full 0-100 scale
+   */
+  private normalizeScoresForDisplay(results: SearchResult[]): SearchResult[] {
+    if (results.length === 0) {
+      return results;
+    }
+
+    const scores = results.map(r => r.similarity);
+    const min = Math.min(...scores);
+    const max = Math.max(...scores);
+    const range = max - min;
+
+    // Handle edge case where all scores are identical
+    if (range < 1e-6) {
+      return results.map(r => ({
+        ...r,
+        normalizedScore: 50 // All equal, show as medium confidence
+      }));
+    }
+
+    // Normalize to 0-100 scale
+    return results.map(r => ({
+      ...r,
+      normalizedScore: Math.round(((r.similarity - min) / range) * 100)
+    }));
   }
 
   /**

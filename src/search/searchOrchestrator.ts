@@ -83,6 +83,10 @@ export class SearchOrchestrator {
                 logger.debug(`Filtered from ${beforeFilter} to ${results.length} results`);
             }
 
+            // Apply multi-signal re-ranking
+            logger.debug('Applying multi-signal re-ranking...');
+            results = this.reRankResults(params.query, results);
+
             const searchTime = Date.now() - startTime;
             logger.info(`Search completed in ${searchTime}ms with ${results.length} results`);
 
@@ -119,6 +123,96 @@ export class SearchOrchestrator {
         return results.filter(result =>
             allowedTypes.includes(result.chunk.type)
         );
+    }
+
+    /**
+     * Re-rank search results using multiple signals
+     * Combines semantic similarity with keyword matching, file path matching, and chunk type priority
+     * @param query Original search query
+     * @param results Search results to re-rank
+     * @returns Re-ranked search results
+     */
+    private reRankResults(query: string, results: SearchResult[]): SearchResult[] {
+        if (results.length === 0) {
+            return results;
+        }
+
+        const queryTokens = this.tokenizeCode(query.toLowerCase());
+
+        // Score each result with multiple signals
+        const scoredResults = results.map(result => {
+            const codeTokens = this.tokenizeCode(result.chunk.text.toLowerCase());
+            const filePathTokens = this.tokenizeCode(result.chunk.filePath.toLowerCase());
+
+            // 1. Exact token match ratio (30% weight)
+            const exactMatchRatio = queryTokens.filter(qt =>
+                codeTokens.some(ct => ct.includes(qt) || qt.includes(ct))
+            ).length / Math.max(queryTokens.length, 1);
+
+            // 2. File path match (10% weight)
+            const pathMatchScore = queryTokens.some(qt =>
+                filePathTokens.some(pt => pt.includes(qt))
+            ) ? 1.0 : 0.0;
+
+            // 3. Chunk type priority (10% weight)
+            const typeBonus: Record<ChunkType, number> = {
+                'function': 1.0,
+                'method': 0.95,
+                'class': 0.8,
+                'component': 0.85,
+                'interface': 0.75,
+                'const': 0.6,
+                'variable': 0.5,
+                'import': 0.2,
+                'export': 0.2,
+                'unknown': 0.4,
+                'block': 0.3,
+                'type': 0.7,
+                'namespace': 0.7,
+                'jsx': 0.75,
+                'template': 0.7,
+                'script': 0.6,
+                'css': 0.5,
+                'data': 0.7,
+                'computed': 0.7,
+                'lifecycle': 0.8,
+                'watch': 0.7
+            };
+
+            // 4. Semantic similarity (50% weight)
+            const normalizedSemantic = result.similarity;
+
+            // Composite score
+            const reRankScore = (
+                0.50 * normalizedSemantic +
+                0.30 * exactMatchRatio +
+                0.10 * pathMatchScore +
+                0.10 * (typeBonus[result.chunk.type] ?? 0.5)
+            );
+
+            return {
+                ...result,
+                reRankScore
+            };
+        });
+
+        // Sort by re-rank score (descending)
+        return scoredResults.sort((a, b) => (b.reRankScore ?? 0) - (a.reRankScore ?? 0));
+    }
+
+    /**
+     * Tokenize code/text by splitting on common delimiters and camelCase
+     * @param text Text to tokenize
+     * @returns Array of lowercase tokens
+     */
+    private tokenizeCode(text: string): string[] {
+        return text
+            .replace(/([a-z])([A-Z])/g, '$1 $2')  // camelCase split
+            .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')  // PascalCase split
+            .replace(/[_\-./\\]/g, ' ')  // Delimiters to spaces
+            .toLowerCase()
+            .split(/\s+/)
+            .filter(t => t.length > 1);  // Filter out single characters
     }
 
     /**
