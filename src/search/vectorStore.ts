@@ -9,7 +9,8 @@ import { CodeChunk } from "../indexing/types";
 export interface SearchResult {
   chunk: CodeChunk;
   similarity: number;
-  normalizedScore?: number;  // 0-100 normalized score for display
+  score?: number;            // Similarity as percentage (0-100)
+  lowRelevance?: boolean;    // True if similarity < 0.4 (40%)
   reRankScore?: number;      // Composite score from multi-signal re-ranking
 }
 
@@ -17,6 +18,18 @@ export interface VectorStoreStats {
   chunkCount: number;
   fileCount: number;
   storageSize: number;
+}
+
+/**
+ * Vector store metadata
+ * Stores information about the embedding model used
+ */
+export interface VectorStoreMetadata {
+  dimension: number;
+  model: string;
+  provider: string;
+  createdAt: number;
+  lastUpdated: number;
 }
 
 /**
@@ -29,6 +42,8 @@ export class VectorStore {
   private table: Table | null = null;
   private dbPath: string;
   private tableName = "code_chunks";
+  private metadataPath: string;
+  private metadata: VectorStoreMetadata | null = null;
 
   constructor() {
     // Store in workspace .vscode/.semantic-grep/
@@ -43,6 +58,8 @@ export class VectorStore {
       ".semantic-grep"
     );
 
+    this.metadataPath = path.join(this.dbPath, "metadata.json");
+
     this.logger.info(`Vector store path: ${this.dbPath}`);
   }
 
@@ -54,6 +71,9 @@ export class VectorStore {
       // Ensure directory exists
       await fs.promises.mkdir(this.dbPath, { recursive: true });
 
+      // Load existing metadata
+      await this.loadMetadata();
+
       // Connect to LanceDB
       this.db = await connect(this.dbPath);
       this.logger.info("Connected to LanceDB");
@@ -64,6 +84,11 @@ export class VectorStore {
         if (tableNames.includes(this.tableName)) {
           this.table = await this.db.openTable(this.tableName);
           this.logger.info(`Opened existing table: ${this.tableName}`);
+
+          // Validate dimension compatibility if metadata exists
+          if (this.metadata) {
+            await this.validateDimensionCompatibility();
+          }
         } else {
           this.logger.info(
             "Table does not exist yet, will be created on first insert"
@@ -102,12 +127,131 @@ export class VectorStore {
   }
 
   /**
+   * Load metadata from disk
+   */
+  private async loadMetadata(): Promise<void> {
+    try {
+      if (fs.existsSync(this.metadataPath)) {
+        const data = await fs.promises.readFile(this.metadataPath, 'utf-8');
+        this.metadata = JSON.parse(data);
+        this.logger.info(`Loaded metadata: ${this.metadata?.dimension}D, ${this.metadata?.model} (${this.metadata?.provider})`);
+      }
+    } catch (error) {
+      this.logger.warn('Failed to load metadata, will create new on next insert', error);
+      this.metadata = null;
+    }
+  }
+
+  /**
+   * Save metadata to disk
+   */
+  private async saveMetadata(metadata: VectorStoreMetadata): Promise<void> {
+    try {
+      await fs.promises.writeFile(this.metadataPath, JSON.stringify(metadata, null, 2));
+      this.metadata = metadata;
+      this.logger.info(`Saved metadata: ${metadata.dimension}D, ${metadata.model} (${metadata.provider})`);
+    } catch (error) {
+      this.logger.error('Failed to save metadata', error);
+    }
+  }
+
+  /**
+   * Validate that current provider dimension matches stored metadata
+   * Shows warning dialog if mismatch detected
+   */
+  private async validateDimensionCompatibility(): Promise<void> {
+    if (!this.metadata) {
+      return; // No metadata to validate against
+    }
+
+    // Get current provider info from config
+    const Config = (await import('../utils/config')).Config;
+    const providerType = Config.get('embeddingProvider', 'ollama');
+
+    let currentDimension: number;
+    let currentModel: string;
+
+    if (providerType === 'ollama') {
+      const model = Config.get<string>('ollama.embeddingModel', 'nomic-embed-text');
+      currentModel = model;
+      // nomic-embed-text = 768, mxbai-embed-large = 1024
+      currentDimension = model.includes('mxbai-embed-large') ? 1024 : 768;
+    } else {
+      const model = Config.get<string>('openai.embeddingModel', 'text-embedding-3-small');
+      currentModel = model;
+      // text-embedding-3-small = 1536, text-embedding-3-large = 3072
+      currentDimension = model.includes('text-embedding-3-large') ? 3072 : 1536;
+    }
+
+    // Check for dimension mismatch
+    if (this.metadata.dimension !== currentDimension) {
+      this.logger.warn(
+        `Dimension mismatch detected: index=${this.metadata.dimension}D (${this.metadata.model}), ` +
+        `current=${currentDimension}D (${currentModel})`
+      );
+
+      // Show warning dialog to user
+      const reindexButton = 'Re-index Now';
+      const keepCurrentButton = 'Keep Current Model';
+
+      const selection = await vscode.window.showWarningMessage(
+        `Vector dimension mismatch detected!\n\n` +
+        `Index: ${this.metadata.dimension}D using ${this.metadata.model} (${this.metadata.provider})\n` +
+        `Current: ${currentDimension}D using ${currentModel} (${providerType})\n\n` +
+        `Re-indexing is required to use the new model.`,
+        { modal: true },
+        reindexButton,
+        keepCurrentButton
+      );
+
+      if (selection === reindexButton) {
+        // User wants to re-index
+        this.logger.info('User chose to re-index workspace');
+        await this.clear();
+        vscode.window.showInformationMessage(
+          'Index cleared. Please run "Semantic Search: Index Workspace" to re-index with the new model.'
+        );
+      } else {
+        // User wants to keep current model - suggest reverting config
+        this.logger.info('User chose to keep current model');
+        vscode.window.showInformationMessage(
+          `Keeping existing ${this.metadata.dimension}D index. ` +
+          `To use it, please revert your embedding provider settings to: ${this.metadata.provider} / ${this.metadata.model}`
+        );
+      }
+    }
+  }
+
+  /**
+   * Set metadata for current embedding configuration
+   * Call this when creating a new index
+   */
+  async setMetadata(dimension: number, model: string, provider: string): Promise<void> {
+    const metadata: VectorStoreMetadata = {
+      dimension,
+      model,
+      provider,
+      createdAt: this.metadata?.createdAt ?? Date.now(),
+      lastUpdated: Date.now()
+    };
+    await this.saveMetadata(metadata);
+  }
+
+  /**
+   * Get current metadata
+   */
+  getMetadata(): VectorStoreMetadata | null {
+    return this.metadata;
+  }
+
+  /**
    * Clear corrupted database without requiring active connection
    */
   private async clearCorruptedDatabase(): Promise<void> {
     this.logger.info("Clearing corrupted database...");
     this.table = null;
     this.db = null;
+    this.metadata = null;
 
     if (fs.existsSync(this.dbPath)) {
       await fs.promises.rm(this.dbPath, { recursive: true, force: true });
@@ -488,31 +632,20 @@ export class VectorStore {
   }
 
   /**
-   * Normalize similarity scores to 0-100 range for better UX
-   * Maps the range of actual scores to a full 0-100 scale
+   * Convert similarity to percentage and mark low-relevance items
+   * Uses actual similarity score (not normalized) to reflect true quality
    */
   private normalizeScoresForDisplay(results: SearchResult[]): SearchResult[] {
     if (results.length === 0) {
       return results;
     }
 
-    const scores = results.map(r => r.similarity);
-    const min = Math.min(...scores);
-    const max = Math.max(...scores);
-    const range = max - min;
-
-    // Handle edge case where all scores are identical
-    if (range < 1e-6) {
-      return results.map(r => ({
-        ...r,
-        normalizedScore: 50 // All equal, show as medium confidence
-      }));
-    }
-
-    // Normalize to 0-100 scale
+    // Convert similarity to percentage (0-100)
+    // Mark results with similarity < 0.4 as low relevance
     return results.map(r => ({
       ...r,
-      normalizedScore: Math.round(((r.similarity - min) / range) * 100)
+      score: Math.round(r.similarity * 100),
+      lowRelevance: r.similarity < 0.4
     }));
   }
 
@@ -550,6 +683,7 @@ export class VectorStore {
       // Close table and database connections
       this.table = null;
       this.db = null;
+      this.metadata = null;
 
       // Delete the entire database directory to ensure clean slate
       if (fs.existsSync(this.dbPath)) {

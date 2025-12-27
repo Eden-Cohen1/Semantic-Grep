@@ -251,7 +251,8 @@ export class SearchWebviewProvider implements vscode.WebviewViewProvider {
         type: result.chunk.type,
         language: result.chunk.language,
         similarity: result.similarity,
-        normalizedScore: result.normalizedScore,
+        score: result.score,
+        lowRelevance: result.lowRelevance,
         preview: result.chunk.text.replace(/\s+/g, " ").trim().slice(0, 100),
       });
     }
@@ -261,8 +262,8 @@ export class SearchWebviewProvider implements vscode.WebviewViewProvider {
       ([filePath, chunks]) => {
         // Sort chunks within each file by score (descending)
         const sortedChunks = chunks.sort((a, b) => {
-          const scoreA = a.normalizedScore ?? a.similarity * 100;
-          const scoreB = b.normalizedScore ?? b.similarity * 100;
+          const scoreA = a.score ?? a.similarity * 100;
+          const scoreB = b.score ?? b.similarity * 100;
           return scoreB - scoreA;
         });
 
@@ -272,7 +273,7 @@ export class SearchWebviewProvider implements vscode.WebviewViewProvider {
           chunks: sortedChunks,
           avgScore:
             sortedChunks.reduce(
-              (sum, c) => sum + (c.normalizedScore ?? c.similarity * 100),
+              (sum, c) => sum + (c.score ?? c.similarity * 100),
               0
             ) / sortedChunks.length,
         };
@@ -534,6 +535,17 @@ export class SearchWebviewProvider implements vscode.WebviewViewProvider {
             font-weight: 600;
         }
 
+        .low-relevance-tag {
+            display: inline-block;
+            font-size: 10px;
+            padding: 2px 6px;
+            margin-left: 6px;
+            background-color: var(--vscode-inputValidation-warningBackground);
+            color: var(--vscode-inputValidation-warningForeground);
+            border: 1px solid var(--vscode-inputValidation-warningBorder);
+            border-radius: 3px;
+        }
+
         .chunk-preview {
             font-size: 12px;
             font-family: var(--vscode-editor-font-family);
@@ -735,12 +747,13 @@ export class SearchWebviewProvider implements vscode.WebviewViewProvider {
                 \`;
 
                 fileGroup.chunks.forEach(chunk => {
-                    const score = chunk.normalizedScore ?? Math.round(chunk.similarity * 100);
+                    const score = chunk.score ?? Math.round(chunk.similarity * 100);
+                    const lowRelevanceTag = chunk.lowRelevance ? '<span class="low-relevance-tag">⚠️ Low Relevance</span>' : '';
                     html += \`
                         <div class="chunk" onclick="openFile('\${escapeHtml(chunk.filePath)}', \${chunk.startLine}, \${chunk.endLine})">
                             <div class="chunk-header">
                                 <span class="chunk-type">\${chunk.type}</span>
-                                <span class="chunk-score">\${score}%</span>
+                                <span class="chunk-score">\${score}%\${lowRelevanceTag}</span>
                             </div>
                             <div class="chunk-preview">\${escapeHtml(chunk.preview)}...</div>
                             <div class="chunk-location">Lines \${chunk.startLine}-\${chunk.endLine}</div>

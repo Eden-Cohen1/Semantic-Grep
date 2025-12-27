@@ -255,6 +255,76 @@
           "default": false,
           "description": "Enable BM25 + vector hybrid search (requires FTS index creation, Phase 3 feature)",
           "order": 14
+        },
+        "semanticSearch.embeddingProvider": {
+          "type": "string",
+          "enum": ["ollama", "openai"],
+          "default": "ollama",
+          "enumDescriptions": [
+            "Local Ollama instance (free, offline)",
+            "OpenAI API (cloud, requires API key)"
+          ],
+          "description": "Embedding provider (changing requires re-indexing)",
+          "order": 15
+        },
+        "semanticSearch.ollama.embeddingModel": {
+          "type": "string",
+          "enum": ["nomic-embed-text", "mxbai-embed-large"],
+          "default": "nomic-embed-text",
+          "enumDescriptions": [
+            "768-dim, 8192 context - Best for long files",
+            "1024-dim, 512 context - Higher quality for short chunks"
+          ],
+          "description": "Ollama embedding model (changing requires re-indexing)",
+          "order": 16
+        },
+        "semanticSearch.openai.embeddingModel": {
+          "type": "string",
+          "enum": ["text-embedding-3-small", "text-embedding-3-large"],
+          "default": "text-embedding-3-small",
+          "enumDescriptions": [
+            "1536-dim - Fast and cost-effective ($0.02/1M tokens)",
+            "3072-dim - Highest quality ($0.13/1M tokens)"
+          ],
+          "description": "OpenAI embedding model (requires API key, changing requires re-indexing)",
+          "order": 17
+        },
+        "semanticSearch.openai.organization": {
+          "type": "string",
+          "default": "",
+          "description": "OpenAI organization ID (optional)",
+          "order": 18
+        },
+        "semanticSearch.enableQueryExpansion": {
+          "type": "boolean",
+          "default": false,
+          "description": "Use LLM to expand queries with synonyms and related terms",
+          "order": 19
+        },
+        "semanticSearch.queryExpansionProvider": {
+          "type": "string",
+          "enum": ["none", "ollama", "openai"],
+          "default": "ollama",
+          "enumDescriptions": [
+            "Disable query expansion",
+            "Local Ollama instance (free, offline)",
+            "OpenAI GPT (cloud, requires API key)"
+          ],
+          "description": "Provider for query expansion",
+          "order": 20
+        },
+        "semanticSearch.ollama.expansionModel": {
+          "type": "string",
+          "default": "llama3.2",
+          "description": "Ollama model for query expansion (e.g., llama3.2, qwen2.5)",
+          "order": 21
+        },
+        "semanticSearch.openai.expansionModel": {
+          "type": "string",
+          "enum": ["gpt-4o-mini"],
+          "default": "gpt-4o-mini",
+          "description": "OpenAI model for query expansion",
+          "order": 22
         }
       }
     }

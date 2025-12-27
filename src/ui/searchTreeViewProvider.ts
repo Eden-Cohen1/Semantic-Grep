@@ -143,11 +143,8 @@ export class SearchTreeDataProvider implements vscode.TreeDataProvider<SearchTre
         const items: SearchTreeItem[] = [];
 
         for (const [filePath, results] of this.groupedResults.entries()) {
-            // Calculate average score for the file (prefer normalizedScore if available)
-            const hasNormalizedScores = results.some(r => r.normalizedScore !== undefined);
-            const avgScore = hasNormalizedScores
-                ? results.reduce((sum, r) => sum + (r.normalizedScore ?? 0), 0) / results.length
-                : results.reduce((sum, r) => sum + r.similarity, 0) / results.length * 100;
+            // Calculate average score for the file
+            const avgScore = results.reduce((sum, r) => sum + (r.score ?? r.similarity * 100), 0) / results.length;
 
             // Get relative path for display
             const displayPath = this.getDisplayPath(filePath);
@@ -175,23 +172,15 @@ export class SearchTreeDataProvider implements vscode.TreeDataProvider<SearchTre
             items.push(item);
         }
 
-        // Sort files by average score (descending)
+        // Sort files by average score (descending - higher is better)
         items.sort((a, b) => {
             const aResults = this.groupedResults.get(a.searchResult!.chunk.filePath)!;
             const bResults = this.groupedResults.get(b.searchResult!.chunk.filePath)!;
 
-            const hasNormalizedA = aResults.some(r => r.normalizedScore !== undefined);
-            const hasNormalizedB = bResults.some(r => r.normalizedScore !== undefined);
+            const aAvgScore = aResults.reduce((sum, r) => sum + (r.score ?? r.similarity * 100), 0) / aResults.length;
+            const bAvgScore = bResults.reduce((sum, r) => sum + (r.score ?? r.similarity * 100), 0) / bResults.length;
 
-            const aAvg = hasNormalizedA
-                ? aResults.reduce((sum, r) => sum + (r.normalizedScore ?? 0), 0) / aResults.length
-                : aResults.reduce((sum, r) => sum + r.similarity, 0) / aResults.length * 100;
-
-            const bAvg = hasNormalizedB
-                ? bResults.reduce((sum, r) => sum + (r.normalizedScore ?? 0), 0) / bResults.length
-                : bResults.reduce((sum, r) => sum + r.similarity, 0) / bResults.length * 100;
-
-            return bAvg - aAvg;
+            return bAvgScore - aAvgScore;
         });
 
         return items;
@@ -296,11 +285,12 @@ export class SearchTreeDataProvider implements vscode.TreeDataProvider<SearchTre
         const tooltip = new vscode.MarkdownString();
         tooltip.isTrusted = true;
 
-        // Add score information (prefer normalized score)
-        if (result.normalizedScore !== undefined) {
-            tooltip.appendMarkdown(`**Score:** ${result.normalizedScore}% (similarity: ${(result.similarity * 100).toFixed(1)}%)  \n`);
-        } else {
-            tooltip.appendMarkdown(`**Similarity:** ${(result.similarity * 100).toFixed(1)}%  \n`);
+        // Add score information
+        const score = result.score ?? Math.round(result.similarity * 100);
+        tooltip.appendMarkdown(`**Score:** ${score}% (similarity: ${(result.similarity * 100).toFixed(1)}%)  \n`);
+
+        if (result.lowRelevance) {
+            tooltip.appendMarkdown(`⚠️ **Low Relevance** - May not be relevant to your query  \n`);
         }
 
         tooltip.appendMarkdown(`**Type:** ${chunk.type}  \n`);

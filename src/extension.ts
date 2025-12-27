@@ -2,12 +2,19 @@ import * as vscode from 'vscode';
 import { HealthChecker } from './ollama/healthCheck';
 import { StatusBarManager } from './ui/statusBar';
 import { Logger } from './utils/logger';
+import { Config } from './utils/config';
+import { SecretsManager } from './utils/secrets';
 import { testChunkerCommand, testChunkerOnWorkspace } from './commands/testChunker';
 import { indexWorkspaceCommand, clearCacheCommand } from './commands/indexCommand';
 import { SearchWebviewProvider } from './ui/searchWebviewProvider';
 import { SearchOrchestrator } from './search/searchOrchestrator';
-import { OllamaClient } from './ollama/ollamaClient';
+import { QueryExpander } from './search/queryExpander';
 import { Indexer } from './indexing/indexer';
+import { IEmbeddingProvider } from './providers/embedding/IEmbeddingProvider';
+import { IQueryExpansionProvider } from './providers/expansion/IQueryExpansionProvider';
+import { EmbeddingProviderFactory } from './providers/embedding/EmbeddingProviderFactory';
+import { QueryExpansionProviderFactory } from './providers/expansion/QueryExpansionProviderFactory';
+import { OllamaEmbeddingConfig, OpenAIEmbeddingConfig, OllamaExpansionConfig, OpenAIExpansionConfig } from './providers/models/ProviderConfig';
 
 /**
  * Extension entry point
@@ -47,6 +54,9 @@ export async function activate(context: vscode.ExtensionContext) {
         statusBar.show('$(check) Ollama Ready');
         logger.info('Ollama health check passed. Extension ready.');
 
+        // Initialize secrets manager
+        const secretsManager = new SecretsManager(context);
+
         // Initialize search functionality
         const indexer = new Indexer();
         const vectorStore = indexer.getVectorStore();
@@ -54,8 +64,25 @@ export async function activate(context: vscode.ExtensionContext) {
         // Initialize vector store (required for searching)
         await vectorStore.initialize();
 
-        const ollamaClient = new OllamaClient();
-        const searchOrchestrator = new SearchOrchestrator(ollamaClient, vectorStore);
+        // Create embedding provider based on configuration
+        const embeddingProvider = await createEmbeddingProvider(secretsManager);
+        if (!embeddingProvider) {
+            logger.error('Failed to create embedding provider');
+            return;
+        }
+
+        // Create query expansion provider if enabled
+        let queryExpander: QueryExpander | null = null;
+        if (Config.getEnableQueryExpansion()) {
+            const expansionProvider = await createExpansionProvider(secretsManager);
+            queryExpander = new QueryExpander(expansionProvider);
+        }
+
+        const searchOrchestrator = new SearchOrchestrator(
+            embeddingProvider,
+            queryExpander,
+            vectorStore
+        );
 
         // Register WebView provider
         const searchWebviewProvider = new SearchWebviewProvider(
@@ -90,6 +117,127 @@ export async function activate(context: vscode.ExtensionContext) {
 export function deactivate() {
     const logger = new Logger('Extension');
     logger.info('Semantic Grep deactivated.');
+}
+
+/**
+ * Create embedding provider based on configuration
+ */
+async function createEmbeddingProvider(secretsManager: SecretsManager): Promise<IEmbeddingProvider | null> {
+    const logger = new Logger('ProviderFactory');
+    const providerType = Config.getEmbeddingProvider();
+
+    try {
+        if (providerType === 'openai') {
+            logger.info('Creating OpenAI embedding provider...');
+
+            // Get API key from secrets
+            const apiKey = await secretsManager.getOpenAIKey();
+            if (!apiKey) {
+                const selection = await vscode.window.showWarningMessage(
+                    'OpenAI API key not configured. Please add your API key to use OpenAI embeddings.',
+                    'Configure API Key',
+                    'Use Ollama Instead'
+                );
+
+                if (selection === 'Configure API Key') {
+                    await vscode.commands.executeCommand('semanticSearch.configureOpenAI');
+                    // After configuration, try to get the key again
+                    const newApiKey = await secretsManager.getOpenAIKey();
+                    if (!newApiKey) {
+                        logger.warn('No API key provided, falling back to Ollama');
+                        return createOllamaEmbeddingProvider();
+                    }
+                    return createOpenAIEmbeddingProvider(newApiKey, secretsManager);
+                } else {
+                    // Fall back to Ollama
+                    return createOllamaEmbeddingProvider();
+                }
+            }
+
+            return createOpenAIEmbeddingProvider(apiKey, secretsManager);
+        } else {
+            // Ollama provider
+            return createOllamaEmbeddingProvider();
+        }
+    } catch (error) {
+        logger.error('Failed to create embedding provider, falling back to Ollama', error);
+        return createOllamaEmbeddingProvider();
+    }
+}
+
+/**
+ * Create Ollama embedding provider
+ */
+async function createOllamaEmbeddingProvider(): Promise<IEmbeddingProvider> {
+    const config: OllamaEmbeddingConfig = {
+        provider: 'ollama',
+        url: Config.getOllamaUrl(),
+        model: Config.getOllamaEmbeddingModel() as 'nomic-embed-text' | 'mxbai-embed-large'
+    };
+
+    return await EmbeddingProviderFactory.create(config);
+}
+
+/**
+ * Create OpenAI embedding provider
+ */
+async function createOpenAIEmbeddingProvider(apiKey: string, secretsManager: SecretsManager): Promise<IEmbeddingProvider> {
+    const config: OpenAIEmbeddingConfig = {
+        provider: 'openai',
+        apiKey,
+        model: Config.getOpenAIEmbeddingModel() as 'text-embedding-3-small' | 'text-embedding-3-large',
+        organization: Config.getOpenAIOrganization()
+    };
+
+    return await EmbeddingProviderFactory.create(config);
+}
+
+/**
+ * Create query expansion provider based on configuration
+ */
+async function createExpansionProvider(secretsManager: SecretsManager): Promise<IQueryExpansionProvider | null> {
+    const logger = new Logger('ExpansionFactory');
+    const providerType = Config.getQueryExpansionProvider();
+
+    if (providerType === 'none') {
+        return null;
+    }
+
+    try {
+        if (providerType === 'openai') {
+            logger.info('Creating OpenAI expansion provider...');
+
+            // Get API key from secrets
+            const apiKey = await secretsManager.getOpenAIKey();
+            if (!apiKey) {
+                logger.warn('No OpenAI API key, query expansion disabled');
+                return null;
+            }
+
+            const config: OpenAIExpansionConfig = {
+                provider: 'openai',
+                apiKey,
+                model: Config.getOpenAIExpansionModel() as 'gpt-4o-mini',
+                organization: Config.getOpenAIOrganization()
+            };
+
+            return await QueryExpansionProviderFactory.create(config);
+        } else {
+            // Ollama provider
+            logger.info('Creating Ollama expansion provider...');
+
+            const config: OllamaExpansionConfig = {
+                provider: 'ollama',
+                url: Config.getOllamaUrl(),
+                model: Config.getOllamaExpansionModel()
+            };
+
+            return await QueryExpansionProviderFactory.create(config);
+        }
+    } catch (error) {
+        logger.error('Failed to create expansion provider', error);
+        return null;
+    }
 }
 
 /**
@@ -130,12 +278,32 @@ function registerCommands(context: vscode.ExtensionContext) {
         testChunkerOnWorkspace
     );
 
+    // Configure OpenAI API key command
+    const configureOpenAICmd = vscode.commands.registerCommand(
+        'semanticSearch.configureOpenAI',
+        async () => {
+            const apiKey = await vscode.window.showInputBox({
+                prompt: 'Enter your OpenAI API key',
+                password: true,
+                placeHolder: 'sk-...',
+                ignoreFocusOut: true
+            });
+
+            if (apiKey && apiKey.trim().length > 0) {
+                const secretsManager = new SecretsManager(context);
+                await secretsManager.storeOpenAIKey(apiKey.trim());
+                vscode.window.showInformationMessage('OpenAI API key saved securely. Please reload the window for changes to take effect.');
+            }
+        }
+    );
+
     context.subscriptions.push(
         indexCommand,
         clearCacheCmd,
         healthCheckCommand,
         testChunkerCmd,
-        testChunkerWorkspaceCmd
+        testChunkerWorkspaceCmd,
+        configureOpenAICmd
     );
 }
 
